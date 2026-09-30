@@ -1,0 +1,1298 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>急診語音護理紀錄</title>
+<style>
+:root{
+  --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef2f7; --text:#142033; --muted:#5a6a80;
+  --border:#d6dee9; --primary:#1f4e8c; --primary-2:#2c68b8; --on-primary:#ffffff;
+  --danger:#b3261e; --danger-bg:#fdecea; --warn:#9a5b00; --warn-bg:#fff3dc;
+  --ok:#17744a; --ok-bg:#e3f4ea; --info:#1f4e8c; --info-bg:#e8f0fb; --rec:#c62828;
+  --shadow:0 1px 3px rgba(20,32,51,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1520; --surface:#172131; --surface-2:#1e2a3d; --text:#e6ecf5; --muted:#9aa9bf;
+    --border:#2c3a50; --primary:#5b93dc; --primary-2:#7aa9e6; --on-primary:#0b1220;
+    --danger:#ff8a80; --danger-bg:#3a1c1c; --warn:#ffc266; --warn-bg:#3a2c12;
+    --ok:#6fd3a0; --ok-bg:#15332a; --info:#8fb6ea; --info-bg:#1a2a44; --rec:#ff6b6b;
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1520; --surface:#172131; --surface-2:#1e2a3d; --text:#e6ecf5; --muted:#9aa9bf;
+  --border:#2c3a50; --primary:#5b93dc; --primary-2:#7aa9e6; --on-primary:#0b1220;
+  --danger:#ff8a80; --danger-bg:#3a1c1c; --warn:#ffc266; --warn-bg:#3a2c12;
+  --ok:#6fd3a0; --ok-bg:#15332a; --info:#8fb6ea; --info-bg:#1a2a44; --rec:#ff6b6b;
+  --shadow:none;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;font-size:16px;line-height:1.55}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px 80px}
+header.top{position:sticky;top:0;z-index:20;background:var(--primary);color:var(--on-primary)}
+header.top .in{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+header.top h1{font-size:18px;margin:0;font-weight:700;flex:1;min-width:160px}
+.meta{font-size:12px;opacity:.9;display:block;font-weight:400}
+.hbtn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:inherit;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px}
+.hbtn:hover{background:rgba(255,255,255,.24)}
+nav.tabs{display:flex;gap:6px;margin:14px 0}
+nav.tabs button{flex:1;padding:10px;border:1px solid var(--border);background:var(--surface);border-radius:10px;cursor:pointer;font-weight:600;color:var(--muted)}
+nav.tabs button.active{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.badge{display:inline-block;min-width:20px;padding:0 6px;border-radius:10px;font-size:12px;background:var(--danger);color:#fff;margin-left:4px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{font-size:16px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+@media (max-width:640px){.grid,.grid-3{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+label.f.req span::after{content:" *";color:var(--danger)}
+input[type=text],input[type=password],input[type=number],input[type=date],input[type=url],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:16px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary-2);outline-offset:0;border-color:var(--primary-2)}
+input.missing{border-color:var(--danger);background:var(--danger-bg)}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+.btn{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.btn.primary:hover{background:var(--primary-2)}
+.btn.danger{color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row .grow{flex:1}
+/* recorder */
+.rec-card{text-align:center}
+.mic{width:120px;height:120px;border-radius:50%;border:none;cursor:pointer;background:var(--primary);color:var(--on-primary);font-size:44px;display:inline-flex;align-items:center;justify-content:center;margin:6px auto 8px;transition:transform .15s}
+.mic:hover{transform:scale(1.03)}
+.mic.recording{background:var(--rec);color:#fff;animation:pulse 1.4s infinite}
+.mic.processing{background:var(--muted);cursor:wait}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(198,40,40,.45)}70%{box-shadow:0 0 0 22px rgba(198,40,40,0)}100%{box-shadow:0 0 0 0 rgba(198,40,40,0)}}
+.state{font-size:18px;font-weight:700}
+.timer{font-variant-numeric:tabular-nums;color:var(--muted);font-size:15px}
+.cmdline{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:6px 12px;border-radius:20px;background:var(--surface-2);font-size:14px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--ok)}
+.dot.warn{background:var(--warn)}
+.dot.err{background:var(--danger)}
+.live{margin-top:12px;text-align:left;min-height:48px;padding:10px 12px;border:1px dashed var(--border);border-radius:8px;background:var(--surface-2);font-size:15px;color:var(--text);white-space:pre-wrap}
+.live .interim{color:var(--muted)}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:14px}
+.switch input{width:18px;height:18px}
+/* checklist */
+details.coach summary{cursor:pointer;font-weight:700;padding:4px 0}
+.ck{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:8px;background:var(--surface-2);margin:6px 0;cursor:pointer}
+.ck.on{background:var(--ok-bg)}
+.ck input{width:18px;height:18px;margin-top:3px}
+.warnbox{background:var(--danger-bg);color:var(--danger);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:14px}
+/* result */
+.flags{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:13px;font-weight:600;background:var(--surface-2);color:var(--muted)}
+.chip.alert{background:var(--danger-bg);color:var(--danger)}
+.chip.caution{background:var(--warn-bg);color:var(--warn)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.info{background:var(--info-bg);color:var(--info)}
+textarea.note{min-height:180px;line-height:1.7}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{font-size:13px;color:var(--muted);font-weight:600;background:var(--surface-2)}
+td.num{font-variant-numeric:tabular-nums;font-weight:600}
+tr.abn td{background:var(--danger-bg)}
+tr.abn td.num{color:var(--danger)}
+.sec{margin:8px 0}
+.sec b{display:inline-block;min-width:72px;color:var(--muted);font-size:14px}
+details.trans{margin-top:10px}
+details.trans summary{cursor:pointer;font-weight:600}
+.pre{white-space:pre-wrap;background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:15px}
+.compare{background:var(--info-bg);border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:10px}
+.spinner{display:inline-block;width:18px;height:18px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* list */
+.item{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer;background:var(--surface)}
+.item:hover{border-color:var(--primary-2)}
+.item .top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.item .snip{margin-top:6px;font-size:15px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.empty{color:var(--muted);text-align:center;padding:24px 8px}
+.src{font-size:12px;padding:1px 6px;border-radius:6px;background:var(--surface-2);color:var(--muted)}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(10,16,26,.55);display:none;align-items:flex-start;justify-content:center;padding:24px 12px;z-index:50;overflow-y:auto}
+.modal.open{display:flex}
+.modal .box{background:var(--surface);border-radius:14px;max-width:760px;width:100%;padding:18px;border:1px solid var(--border)}
+.modal .box h3{margin:0 0 12px;font-size:18px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.x{border:none;background:none;font-size:22px;cursor:pointer;color:var(--muted)}
+fieldset{border:1px solid var(--border);border-radius:10px;padding:12px;margin:0 0 12px}
+legend{font-weight:700;padding:0 6px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#142033;color:#fff;padding:12px 18px;border-radius:10px;font-size:15px;z-index:60;max-width:calc(100% - 32px);opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+.hidden{display:none!important}
+.trend td{white-space:nowrap}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:14px;font-size:14px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="in">
+    <h1>🎙️ 急診語音護理紀錄<span class="meta" id="hdrMeta">—</span></h1>
+    <button class="hbtn" id="btnSettings" type="button">⚙️ 設定</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="banner hidden" id="setupBanner">尚未設定 AI 連線。請按右上角「⚙️ 設定」填入 API Key 或統一帳號的雲端網址。</div>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="active" data-view="record">📝 紀錄</button>
+    <button type="button" data-view="search">🔍 查詢</button>
+    <button type="button" data-view="track">📌 追蹤<span class="badge hidden" id="trackBadge">0</span></button>
+  </nav>
+
+  <!-- ======== 紀錄 ======== -->
+  <section id="view-record">
+    <div class="card">
+      <h2>病人資料</h2>
+      <div class="grid">
+        <label class="f req"><span>病歷號</span><input type="text" id="mrn" inputmode="numeric" autocomplete="off" placeholder="必填（只存本機與雲端，不送 AI）"></label>
+        <label class="f req"><span>床號</span><input type="text" id="bed" autocomplete="off" placeholder="必填，例：106"></label>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <label class="f"><span>紀錄類型</span><select id="template"></select></label>
+        <label class="f"><span>評估提醒（選填）</span><select id="dx"><option value="">不使用</option></select></label>
+      </div>
+      <div id="prevBox" class="compare hidden" style="margin-top:12px"></div>
+      <details class="coach hidden" id="coachBox" style="margin-top:10px" open>
+        <summary id="coachTitle">評估提醒</summary>
+        <div id="coachList"></div>
+        <div class="warnbox" id="coachWarn"></div>
+      </details>
+    </div>
+
+    <div class="card rec-card">
+      <button class="mic" id="mic" type="button" aria-label="開始或結束錄音">🎤</button>
+      <div class="state" id="stateText">填好病歷號與床號後，說「開始」或按麥克風</div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="cmdline"><span class="dot" id="cmdDot"></span><span id="cmdText">語音指令未啟動</span></div>
+      <div style="margin-top:8px"><label class="switch"><input type="checkbox" id="cmdToggle"> 語音指令（說「開始」開錄，說「結束」完成）</label></div>
+      <div class="live hidden" id="live"></div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <h2 style="margin:0" id="resultTitle">紀錄結果</h2>
+        <span class="src" id="resultSync"></span>
+      </div>
+      <div id="resultBody"></div>
+    </div>
+  </section>
+
+  <!-- ======== 查詢 ======== -->
+  <section id="view-search" class="hidden">
+    <div class="card">
+      <h2>查詢紀錄、逐字稿與錄音</h2>
+      <div class="grid">
+        <label class="f"><span>病歷號</span><input type="text" id="qMrn" autocomplete="off"></label>
+        <label class="f"><span>床號</span><input type="text" id="qBed" autocomplete="off"></label>
+      </div>
+      <label class="f" style="margin-top:10px"><span>關鍵字（搜尋紀錄與逐字稿）</span><input type="text" id="qKw" placeholder="例：發燒、Foley、Na"></label>
+      <div class="grid" style="margin-top:10px">
+        <label class="f"><span>起日</span><input type="date" id="qFrom"></label>
+        <label class="f"><span>迄日</span><input type="date" id="qTo"></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label class="switch"><input type="checkbox" id="qFlag"> 只看有異常註記</label>
+        <span class="grow"></span>
+        <button class="btn" type="button" id="btnSyncAll">☁️ 上傳未同步</button>
+        <button class="btn primary" type="button" id="btnQuery">查詢</button>
+      </div>
+      <div class="hint" id="qSource"></div>
+    </div>
+    <div id="qResults"></div>
+  </section>
+
+  <!-- ======== 追蹤 ======== -->
+  <section id="view-track" class="hidden">
+    <div class="card">
+      <div class="row">
+        <h2 class="grow" style="margin:0">異常追蹤</h2>
+        <select id="tRange" style="width:auto">
+          <option value="1">近 24 小時</option>
+          <option value="3" selected>近 3 天</option>
+          <option value="7">近 7 天</option>
+        </select>
+        <label class="switch"><input type="checkbox" id="tAll"> 含已解除</label>
+        <button class="btn" type="button" id="btnTrack">重新整理</button>
+      </div>
+      <div class="hint">同一病歷號的異常會串在一起，並列出生命徵象變化，方便接續追蹤。</div>
+    </div>
+    <div id="tResults"></div>
+  </section>
+</div>
+
+<!-- ======== 設定 ======== -->
+<div class="modal" id="settingsModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>⚙️ 設定 <button class="x" type="button" data-close>×</button></h3>
+    <fieldset>
+      <legend>AI 連線</legend>
+      <label class="f"><span>連線方式</span>
+        <select id="sMode">
+          <option value="key">個人 API Key（直接連 Google）</option>
+          <option value="proxy">統一帳號（經由雲端後端，Key 不存在瀏覽器）</option>
+        </select>
+      </label>
+      <label class="f" id="sKeyWrap" style="margin-top:10px"><span>Gemini API Key</span><input type="password" id="sKey" placeholder="AIza…" autocomplete="off"></label>
+      <div class="grid" style="margin-top:10px">
+        <label class="f"><span>模型</span><select id="sModel"></select></label>
+        <label class="f"><span>自訂模型 ID（選「自訂」時）</span><input type="text" id="sCustom" placeholder="例：gemini-3.8-flash"></label>
+      </div>
+      <div class="hint" id="sPrice"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" type="button" id="btnTestAI">測試 AI 連線</button>
+        <span class="hint" id="testAIResult"></span>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Google 雲端（紀錄存 Sheets、錄音存 Drive）</legend>
+      <label class="f"><span>Apps Script 網址</span><input type="url" id="sGas" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      <label class="f" style="margin-top:10px"><span>存取碼</span><input type="password" id="sToken" autocomplete="off"></label>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" type="button" id="btnTestGas">測試雲端</button>
+        <span class="hint" id="testGasResult"></span>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>紀錄</legend>
+      <div class="grid">
+        <label class="f"><span>紀錄者</span><input type="text" id="sAuthor" placeholder="例：王小明"></label>
+        <label class="f"><span>每月預算提醒（美元）</span><input type="number" id="sBudget" min="0" step="1"></label>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <label class="f"><span>開始指令</span><input type="text" id="sStart"></label>
+        <label class="f"><span>結束指令</span><input type="text" id="sStop"></label>
+      </div>
+      <label class="switch" style="margin-top:10px"><input type="checkbox" id="sWeb"> 內建表查不到單位時，讓 AI 上網查（只送項目名稱）</label>
+    </fieldset>
+    <fieldset>
+      <legend>轉入病歷（預留）</legend>
+      <label class="f"><span>病歷系統 API 網址</span><input type="url" id="sEmr" placeholder="尚未提供可先留空"></label>
+      <label class="f" style="margin-top:10px"><span>授權碼（Bearer）</span><input type="password" id="sEmrToken" autocomplete="off"></label>
+      <div class="hint">未填網址時，「轉入病歷」會顯示標準格式的資料，可複製給資訊室對接。</div>
+    </fieldset>
+    <fieldset>
+      <legend>本月用量（本機統計）</legend>
+      <div id="sUsage" class="hint" style="margin:0"></div>
+      <div class="row" style="margin-top:8px"><button class="btn" type="button" id="btnResetUsage">歸零</button></div>
+    </fieldset>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" type="button" data-close>取消</button>
+      <button class="btn primary" type="button" id="btnSaveSettings">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======== 詳細 / 轉病歷 ======== -->
+<div class="modal" id="detailModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3><span id="detailTitle">紀錄</span><button class="x" type="button" data-close>×</button></h3>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* ================= 基本工具 ================= */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LS = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+let toastTimer;
+function toast(msg, ms){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms || 3200);
+}
+const pad = n => String(n).padStart(2, '0');
+function fmtTime(iso){ const d = new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function fmtDur(s){ s = Math.round(s || 0); return `${pad(Math.floor(s/60))}:${pad(s%60)}`; }
+function uid(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function monthKey(){ const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1); }
+function blobToBase64(blob){
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+}
+function base64ToBlob(b64, mime){
+  const bin = atob(b64); const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime || 'audio/webm' });
+}
+async function copyText(text, label){
+  try { await navigator.clipboard.writeText(text); toast('已複製' + (label ? '：' + label : '')); }
+  catch(e){
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('已複製' + (label ? '：' + label : '')); } catch(_) { toast('複製失敗，請手動選取'); }
+    ta.remove();
+  }
+}
+
+/* ================= 設定 ================= */
+const MODELS = [
+  { id:'gemini-3.8-flash',      label:'Gemini 3.8 Flash（最新，建議）', price:[0.75, 3.75] },
+  { id:'gemini-3.7-flash',      label:'Gemini 3.7 Flash',               price:[0.75, 3.75] },
+  { id:'gemini-3.6-flash',      label:'Gemini 3.6 Flash',               price:[0.75, 3.75] },
+  { id:'gemini-3.5-flash',      label:'Gemini 3.5 Flash',               price:[1.50, 9.00] },
+  { id:'gemini-3.5-flash-lite', label:'Gemini 3.5 Flash-Lite（最省）',   price:[0.30, 2.50] },
+  { id:'custom',                label:'自訂…',                          price:[0.75, 3.75] }
+];
+const SEARCH_FREE_PER_MONTH = 5000, SEARCH_PRICE = 0.014;
+const DEFAULT_CFG = { mode:'key', apiKey:'', model:'gemini-3.8-flash', customModel:'', gasUrl:'https://script.google.com/macros/s/AKfycbww6nxNxT9WGjS5pAjAdlW2KwmP9peUDMd5z-jW6ptVbfgdRSJDDbcpFdLpnDzTaM_7DA/exec', gasToken:'',
+  webUnits:true, budget:10, startWord:'開始', stopWord:'結束', emrUrl:'', emrToken:'', author:'', voiceCmd:false };
+let cfg = Object.assign({}, DEFAULT_CFG, LS.get('vnw_cfg', {}));
+if (!cfg.gasUrl) cfg.gasUrl = DEFAULT_CFG.gasUrl;
+function saveCfg(){ LS.set('vnw_cfg', cfg); }
+function currentModel(){ return cfg.model === 'custom' ? (cfg.customModel || 'gemini-3.8-flash').trim() : cfg.model; }
+function modelPrice(id){ const m = MODELS.find(x => x.id === id); return m ? m.price : [0.75, 3.75]; }
+function aiReady(){ return cfg.mode === 'proxy' ? !!(cfg.gasUrl && cfg.gasToken) : !!cfg.apiKey; }
+function cloudReady(){ return !!(cfg.gasUrl && cfg.gasToken); }
+
+/* ================= 用量 / 費用 ================= */
+function getUsage(){ const u = LS.get('vnw_usage', {}); const k = monthKey(); if (u.month !== k) return { month:k, calls:0, inTok:0, outTok:0, cost:0, searches:0 }; return u; }
+function trackUsage(model, meta, searched){
+  const u = getUsage();
+  const inTok = (meta && meta.promptTokenCount) || 0;
+  const outTok = ((meta && meta.candidatesTokenCount) || 0) + ((meta && meta.thoughtsTokenCount) || 0);
+  const p = modelPrice(model);
+  u.calls++; u.inTok += inTok; u.outTok += outTok;
+  u.cost += inTok / 1e6 * p[0] + outTok / 1e6 * p[1];
+  if (searched){ u.searches++; if (u.searches > SEARCH_FREE_PER_MONTH) u.cost += SEARCH_PRICE; }
+  LS.set('vnw_usage', u); renderHeader();
+  if (cfg.budget > 0 && u.cost > cfg.budget) toast(`⚠️ 本月估計花費已超過預算 US$${cfg.budget}`, 5000);
+}
+function renderHeader(){
+  const u = getUsage();
+  const conn = cfg.mode === 'proxy' ? '統一帳號' : '個人 Key';
+  const cloud = cloudReady() ? '雲端已連' : '僅本機';
+  $('#hdrMeta').textContent = `${currentModel()} · ${conn} · ${cloud} · 本月約 US$${u.cost.toFixed(2)}（${u.calls} 次）`;
+  $('#setupBanner').classList.toggle('hidden', aiReady());
+}
+
+/* ================= 本機資料庫（含錄音） ================= */
+const DB = {
+  db:null, mem:new Map(),
+  open(){
+    return new Promise(res => {
+      try {
+        const r = indexedDB.open('vnw', 1);
+        r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('records')) d.createObjectStore('records', { keyPath:'id' }); };
+        r.onsuccess = () => { this.db = r.result; res(); };
+        r.onerror = () => { this.db = null; res(); };
+      } catch(e){ this.db = null; res(); }
+    });
+  },
+  store(mode){ return this.db.transaction('records', mode).objectStore('records'); },
+  put(rec){
+    if (!this.db){ this.mem.set(rec.id, rec); return Promise.resolve(); }
+    return new Promise((res, rej) => { const q = this.store('readwrite').put(rec); q.onsuccess = () => res(); q.onerror = () => rej(q.error); });
+  },
+  get(id){
+    if (!this.db) return Promise.resolve(this.mem.get(id));
+    return new Promise(res => { const q = this.store('readonly').get(id); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); });
+  },
+  all(){
+    if (!this.db) return Promise.resolve(Array.from(this.mem.values()));
+    return new Promise(res => { const q = this.store('readonly').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => res([]); });
+  }
+};
+
+/* ================= 雲端（Apps Script） ================= */
+async function gasCall(payload){
+  if (!cloudReady()) throw new Error('尚未設定雲端網址與存取碼');
+  const res = await fetch(cfg.gasUrl, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({}, payload, { token: cfg.gasToken })) });
+  let data;
+  try { data = await res.json(); } catch(e){ throw new Error('雲端回應格式錯誤（請確認已部署為網頁應用程式，存取權為「所有人」）'); }
+  if (!data.ok) throw new Error(data.error || '雲端錯誤');
+  return data;
+}
+function stripForCloud(rec){
+  const o = Object.assign({}, rec); delete o.audioBlob; delete o.synced; return o;
+}
+async function syncRecord(rec){
+  if (!cloudReady()) return false;
+  try {
+    const payload = { action:'save', record: stripForCloud(rec) };
+    if (rec.audioBlob && !rec.audioFileId) payload.audioBase64 = await blobToBase64(rec.audioBlob);
+    const r = await gasCall(payload);
+    rec.synced = true; if (r.audioFileId) rec.audioFileId = r.audioFileId;
+    await DB.put(rec); return true;
+  } catch(e){
+    rec.synced = false; await DB.put(rec);
+    toast('雲端同步失敗，已存本機：' + e.message, 5000); return false;
+  }
+}
+
+/* ================= Gemini 呼叫 ================= */
+async function geminiRequest(model, body){
+  if (cfg.mode === 'proxy'){
+    const r = await gasCall({ action:'gemini', model, body });
+    if (r.status !== 200){ const err = new Error((r.data && r.data.error && r.data.error.message) || ('AI 錯誤 ' + r.status)); err.status = r.status; throw err; }
+    return r.data;
+  }
+  if (!cfg.apiKey) throw new Error('請先在設定填入 API Key');
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method:'POST', headers:{ 'Content-Type':'application/json', 'x-goog-api-key': cfg.apiKey }, body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok){ const err = new Error((data.error && data.error.message) || ('HTTP ' + res.status)); err.status = res.status; throw err; }
+  return data;
+}
+async function callGemini({ parts, schema, useSearch, maxTokens }){
+  const model = currentModel();
+  const base = { contents:[{ role:'user', parts }] };
+  if (useSearch) base.tools = [{ google_search:{} }];
+  const gc = { maxOutputTokens: maxTokens || 8192 };
+  const json = schema ? { responseMimeType:'application/json', responseSchema: schema } : {};
+  // 由新到舊的參數組合：若模型不支援某參數（400）就退一級再試
+  const variants = [
+    Object.assign({}, base, { generationConfig: Object.assign({}, gc, json, { thinkingConfig:{ thinkingLevel:'low' } }) }),
+    Object.assign({}, base, { generationConfig: Object.assign({}, gc, json) }),
+    Object.assign({}, base, { generationConfig: Object.assign({}, gc, schema ? { responseMimeType:'application/json' } : {}) }),
+    Object.assign({}, base, { generationConfig: gc })
+  ];
+  let lastErr;
+  for (const body of variants){
+    try {
+      const data = await geminiRequest(model, body);
+      trackUsage(model, data.usageMetadata, !!useSearch);
+      const cand = (data.candidates || [])[0] || {};
+      const text = ((cand.content && cand.content.parts) || []).filter(p => p.text && !p.thought).map(p => p.text).join('');
+      if (!text){ const e = new Error('AI 沒有回傳內容（' + (cand.finishReason || (data.promptFeedback && data.promptFeedback.blockReason) || '原因不明') + '）'); e.status = 0; throw e; }
+      return { text, data, model };
+    } catch(e){
+      lastErr = e;
+      if (e.status !== 400) break;
+    }
+  }
+  if (lastErr && (lastErr.status === 429)) lastErr.message = '額度已滿或請求太頻繁，請稍後再試（' + lastErr.message + '）';
+  if (lastErr && (lastErr.status === 404)) lastErr.message = '找不到模型「' + model + '」，請到設定換模型（' + lastErr.message + '）';
+  throw lastErr;
+}
+function parseJSON(text){
+  let t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  try { return JSON.parse(t); } catch(e){}
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a >= 0 && b > a){ try { return JSON.parse(t.slice(a, b + 1)); } catch(e){} }
+  throw new Error('AI 回傳的結構化資料無法解析');
+}
+
+/* ================= 紀錄類型 / 評估提醒 ================= */
+const TEMPLATES = {
+  obs_full:{ label:'留觀完整評估', hint:'開頭「R:病人因【主訴/診斷】入急診，於留觀XX床待床，由XX陪伴，GCS：…，生命徵象：…」，依序寫意識、主訴與變化、管路、皮膚、活動與跌倒風險、衛教，結尾「續觀」。',
+    must:['意識／GCS','生命徵象','主訴變化','管路','皮膚','跌倒風險','衛教'] },
+  obs_follow:{ label:'留觀追蹤', hint:'簡短：GCS、生命徵象、症狀變化、處置與反應，結尾「續觀」。', must:['生命徵象','症狀變化'] },
+  treat:{ label:'治療區紀錄', hint:'問題導向：病人現況、變化、處置、醫師指示、再評估結果。', must:['現況','處置','再評估'] },
+  handover:{ label:'交班摘要', hint:'依「事件（為什麼）→ 處理（做了什麼、待做什麼）→ 追蹤（有數據的結果，沒有寫待報告）」條列。', must:['事件','處理','追蹤'] }
+};
+const COACH = [{"id": "dx1", "title": "UTI / 泌尿道感染", "short": "UTI", "icon": "🦠", "must": ["排尿狀況（頻率、灼熱、急迫感、血尿）", "腰痛 / 側腹痛（單側 vs 雙側）", "發燒、寒顫", "意識狀態（老人特別注意，可能以譫妄表現）", "飲水量、尿量、尿色", "抗生素反應（過敏、副作用、療效）", "V/S 趨勢", "衛教完成（多飲水 >2000ml、完成療程）"], "warnings": ["T >39°C 持續不退", "意識改變（老人 UTI 常以譫妄表現）", "收縮壓 <90mmHg", "持續嘔吐 + 脫水徵象", "單側腰痛劇烈（懷疑腎盂腎炎）"], "examples": [{"label": "基本", "content": "pt UTI 留觀 D2，意識清楚 GCS E4V5M6，T 37.0 退燒中，排尿順暢無血尿，已飲水 1500ml，抗生素第 3 劑無不適，已衛教多飲水及完成療程，續觀。"}, {"label": "老人版", "content": "78y female UTI 留觀 D2，意識清楚 GCS E4V5M6（早班曾混亂現恢復），T 37.2，飲水量偏低 1000ml/day，已衛教家屬鼓勵飲水，抗生素 Ceftriaxone 第 3 劑無過敏反應，高跌高風險已執行防護，續觀。"}]}, {"id": "dx2", "title": "AGE / 急性腸胃炎", "short": "AGE", "icon": "🤢", "must": ["嘔吐次數、性狀（血絲、咖啡色）", "腹瀉次數、性狀（水樣、黏液、血便）", "腹痛部位、強度（NRS）", "脫水徵象（皮膚彈性、口乾、尿量）", "V/S 趨勢（特別 HR、BP）", "進食、IV 補液反應", "電解質檢查結果", "衛教完成（清淡飲食、補水、洗手）"], "warnings": ["持續嘔吐無法進食/服藥", "血便、黑便（GI bleeding）", "BP <90mmHg 或 HR >120（脫水/休克）", "嚴重腹痛 + 腹膜炎徵象（反彈痛）", "老人/小孩明顯脫水"], "examples": [{"label": "基本", "content": "pt AGE 留觀 D1，意識清楚 GCS E4V5M6，腹痛改善 NRS 5→2，今日嘔吐 1 次水樣，腹瀉 3 次未見血絲，已給 IV NS 500ml，可進食米湯無不適，V/S 穩定，續觀。"}, {"label": "脫水版", "content": "65y male AGE 留觀 D1，意識清楚，腹瀉自昨日起 >10 次水樣便，HR 110、BP 105/65，皮膚乾燥，已給 IV NS 1000ml 持續，尿量 30ml/hr 改善中，電解質 Na 132（輕度低），續追蹤。"}]}, {"id": "dx3", "title": "Cellulitis / 蜂窩性組織炎", "short": "Cellulitis", "icon": "🦠", "must": ["患部位置、範圍（建議畫線標記或量大小）", "紅、腫、熱、痛 4 大徵象", "局部變化（範圍擴大？膿瘍？水泡？）", "全身性發燒、寒顫", "DM 病人血糖控制", "抗生素反應", "患肢抬高、冰敷執行", "衛教完成（抬高、觀察界線、按時用藥）"], "warnings": ["紅腫範圍快速擴大（畫線後超過）", "出現黑紫色、水泡、皮下捻髮音（懷疑壞死性筋膜炎）", "高燒寒顫（菌血症徵兆）", "DM 血糖控制不佳", "患肢遠端感覺/血循異常"], "examples": [{"label": "基本", "content": "pt R lower leg cellulitis 留觀 D2，意識清楚，患部紅腫範圍同昨日（已畫線標記），熱痛改善 NRS 6→3，T 37.5 退燒中，已抬高患肢，抗生素第 4 劑無過敏，已衛教抬高及觀察界線，續觀。"}, {"label": "DM 版", "content": "58y female DM + L foot cellulitis 留觀 D3，意識清楚，患部範圍縮小，BS 控制在 150-180 之間，已會診內分泌調整，抗生素第 5 劑，足背動脈搏動正常，已衛教足部照護，續觀。"}]}, {"id": "dx4", "title": "Pneumonia / 肺炎", "short": "Pneumonia", "icon": "🫁", "must": ["呼吸頻率、型態、SpO2", "咳嗽、痰量、痰色", "發燒、寒顫", "意識狀態（老人易混亂）", "進食、活動耐受度", "抗生素反應", "氧氣使用狀況", "衛教完成（深呼吸咳痰、補水、休息）"], "warnings": ["SpO2 <90% 需提高氧氣", "RR >30 或費力呼吸（喘）", "意識改變（缺氧或敗血症）", "收縮壓 <90mmHg", "發紺、無法說話", "老人突然食慾不振 + 意識變化"], "examples": [{"label": "基本", "content": "pt Pneumonia 留觀 D2，意識清楚 GCS E4V5M6，T 37.0 退燒中，RR 18 SpO2 96% (room air)，咳嗽改善仍有黃痰少量，可下床自理，抗生素第 4 劑無不適，已衛教深呼吸咳痰及補水，續觀。"}, {"label": "老人版", "content": "82y male Pneumonia 留觀 D2，意識清楚但反應較慢（家屬訴與平時相符），T 37.5，RR 22 SpO2 92% on NC 2L，痰多黃稠，食慾減退僅進食 1/3，已衛教家屬鼓勵進食及通知變化，續觀。"}]}, {"id": "dx5", "title": "CHF Exacerbation / 心衰急性發作", "short": "CHF Exacerbation", "icon": "❤️", "must": ["呼吸狀況（RR、SpO2、喘的程度、端坐呼吸）", "下肢水腫（部位、程度、按壓性）", "I/O 紀錄（特別尿量）", "體重變化（與基準比較）", "頸靜脈怒張", "心律（特別是 Af）", "利尿劑反應", "衛教完成（限水限鈉、量體重、藥物順從）"], "warnings": ["SpO2 <90% 或快速下降", "端坐呼吸加劇、無法平躺", "收縮壓 <90mmHg（cardiogenic shock）", "尿量 <30ml/hr 持續", "新出現的胸痛", "體重急速增加（>2kg/day）"], "examples": [{"label": "基本", "content": "pt CHF Exa. 留觀 D2，意識清楚，喘改善可平躺，RR 18 SpO2 95% (room air)，下肢水腫 +1 較昨日改善，I/O 1500/1800 負平衡，BW 較昨日 -0.8kg，Lasix 反應佳，已衛教限水 <1500ml/day，續觀。"}, {"label": "重症版", "content": "75y female CHF Exa. with Af 留觀 D1，意識清楚但端坐呼吸，RR 24 SpO2 90% on NC 3L，下肢水腫 +3，頸靜脈怒張明顯，已給 Lasix 40mg IV，尿量增加至 200ml/2hr，HR 110 不規則，續密切監測。"}]}, {"id": "dx6", "title": "Stroke / 急性中風", "short": "Stroke", "icon": "🧠", "must": ["NIHSS 分數變化", "意識狀態（GCS）", "患側肢體肌力（與基準比較）", "語言能力（dysarthria、aphasia）", "吞嚥評估（避免吸入性肺炎）", "V/S（特別 BP 控制目標）", "跌倒風險（患側無力）", "衛教完成（FAST 復發警訊、復健、二級預防）"], "warnings": ["意識下降（GCS 下降 ≥2 分）", "新出現的神經學症狀", "患側肌力下降（與前次比較）", "BP 失控（過高或過低，依目標而定）", "嘔吐 + 頭痛（懷疑顱內壓上升）", "吞嚥困難新發生"], "examples": [{"label": "基本", "content": "pt Acute ischemic stroke (L MCA) 留觀 D2，意識清楚 GCS E4V5M6，NIHSS 由 9→7 改善，R hand 肌力 3 分（同昨日），dysarthria 輕度改善，吞嚥評估通過可進軟食，BP 控制 140/85，高跌高風險已執行，已衛教 FAST 警訊，續觀。"}, {"label": "惡化版", "content": "68y male Stroke D1，意識變化由清楚變嗜睡 GCS E3V4M6，NIHSS 由 8→12，R side 肌力由 3 分降至 2 分，已立即通知主治醫師及神經內科會診，準備重新影像檢查，BP 165/95，密切監測中。"}]}, {"id": "dx7", "title": "Seizure / 癲癇發作", "short": "Seizure", "icon": "⚡", "must": ["發作型態（generalized vs focal）", "發作頻率、持續時間", "post-ictal 意識恢復狀況", "抗癲癇藥物使用、血中濃度", "誘發因素確認（睡眠、酒精、漏藥、發燒）", "跌倒/受傷評估", "跌倒風險（發作後嗜睡）", "衛教完成（規律用藥、避免誘發因素、家屬處理 SOP）"], "warnings": ["持續發作 >5 分鐘（status epilepticus）", "反覆發作未恢復意識", "新出現的神經學缺損", "吸入性、咬傷舌頭", "SpO2 下降、呼吸抑制", "發作後意識遲遲未恢復"], "examples": [{"label": "基本", "content": "pt Seizure (known epilepsy) 留觀 D1，自昨晚發作 1 次 generalized tonic-clonic 持續 1 分鐘後自行緩解，現意識清楚 GCS E4V5M6，post-ictal 已完全恢復，確認漏服 Keppra 為誘因，已給予補劑，已衛教規律用藥及避免熬夜，續觀。"}, {"label": "惡化版", "content": "35y male new onset seizure 留觀 D1，今晨再次發作 generalized tonic-clonic 持續 3 分鐘，給予 Ativan 4mg IV 後緩解，意識仍嗜睡 GCS E3V3M5（post-ictal 改變），已通知神經內科並安排 EEG，密切監測中。"}]}, {"id": "dx8", "title": "Chest Pain Workup / 胸痛待查", "short": "Chest Pain Workup", "icon": "💔", "must": ["疼痛部位、性質（壓迫、撕裂、刺痛）、強度（NRS）", "放射至何處（左肩、下顎、背部）", "誘發/緩解因素（活動、休息、NTG）", "伴隨症狀（喘、冒汗、噁心）", "V/S（雙手 BP 差異？）", "EKG 變化、Troponin 趨勢", "抗凝血/抗血小板用藥", "衛教完成（疼痛再發要立即報告）"], "warnings": ["胸痛再發或加劇", "EKG 新變化（ST 變化、新的 Q wave）", "Troponin 上升", "BP <90mmHg 或不對稱（懷疑 dissection）", "喘、冒冷汗、意識變化", "心律不整新發生"], "examples": [{"label": "基本", "content": "pt Chest pain workup 留觀 D1，意識清楚，自入院後無再發胸痛，NRS 0 分，serial EKG x3 無變化，Troponin x2 均正常範圍，V/S 穩定 BP 130/80，可下床活動無誘發，已衛教疼痛再發立即報告，續觀。"}, {"label": "疑似 ACS 版", "content": "65y male DM + HTN chest pain workup 留觀 D1，主訴左胸壓迫感放射至左肩 NRS 6，伴冒汗，含 NTG 後緩解至 NRS 2，EKG 顯示 ST depression in V4-V6，Troponin 0.08 (前次 0.04 上升)，已立即通知心臟科會診，準備轉 CCU。"}]}, {"id": "dx9", "title": "Abdominal Pain Workup / 腹痛待查", "short": "Abdominal Pain Workup", "icon": "🤰", "must": ["疼痛部位（哪一象限）、性質、強度", "放射、誘發、緩解因素", "伴隨症狀（嘔吐、發燒、排便、排尿異常）", "腹部理學檢查（張力、反彈痛、腸音）", "V/S 趨勢", "Lab / 影像結果（WBC、CRP、Lipase、CT）", "進食、止痛藥反應", "女性病人：月經史、可能懷孕"], "warnings": ["反彈痛、腹部僵硬（腹膜炎）", "疼痛快速加劇", "嘔血、黑便、血便", "BP <90mmHg 或 HR >120", "高燒 + 寒顫", "女性病人懷疑異位妊娠 / PID"], "examples": [{"label": "基本", "content": "pt Abdominal pain workup 留觀 D1，意識清楚，腹痛 RUQ 改善 NRS 7→3，無嘔吐，未發燒，腹部柔軟無反彈痛，Lab WBC 8.5 正常，US 已安排明日，可進食清淡飲食無誘發，續觀。"}, {"label": "急症版", "content": "45y female RLQ abdominal pain 留觀 D1，疼痛加劇 NRS 9，伴噁心嘔吐，T 38.5，腹部有局部反彈痛及保護性緊張，WBC 14000 with left shift，已立即通知一般外科及安排 CT，準備手術評估。"}]}, {"id": "dx10", "title": "Trauma Workup / 外傷待查", "short": "Trauma Workup", "icon": "🚑", "must": ["受傷機轉、時間", "受傷部位完整評估（頭、胸、腹、四肢、脊椎）", "意識狀態（GCS）、瞳孔反應", "V/S 趨勢（血壓 trend）", "出血評估（外出血、隱性出血徵象）", "影像結果（CT、X-ray）", "疼痛控制、止痛藥反應", "衛教完成（觀察警訊：頭部受傷者特別重要）"], "warnings": ["意識變化（GCS 下降）", "頭部外傷後嘔吐、頭痛加劇、瞳孔不對稱", "BP 下降、HR 上升（內出血）", "新出現的呼吸困難（氣胸）", "腹部疼痛加劇或腹脹（腹內出血）", "肢體血循/感覺異常"], "examples": [{"label": "基本", "content": "pt Head trauma (mild) 留觀 D1，車禍機轉，意識清楚 GCS E4V5M6 同入院，瞳孔等大反應正常，無嘔吐頭痛改善 NRS 4→2，CT brain 無異常，V/S 穩定，已衛教頭部外傷觀察警訊（嘔吐、意識變化、劇烈頭痛），續觀。"}, {"label": "多重外傷版", "content": "32y male motorcycle accident 留觀 D1，意識清楚 GCS E4V5M6，R rib fx 3-5 + R lung contusion，SpO2 94% on NC 2L，疼痛 NRS 6 已給止痛，呼吸護理執行中（深呼吸、咳痰），密切監測呼吸狀況及出血徵象，續觀。"}]}];
+
+/* ================= 單位表與異常規則 ================= */
+// 參考值僅供提醒，請以院內檢驗標準為準
+const num = v => { const m = String(v).match(/-?\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : NaN; };
+const UNIT_DB = [
+  { keys:['體溫','t','bt','temp','temperature','耳溫','額溫','顳溫','肛溫','腋溫','口溫'], name:'體溫', unit:'℃', cat:'生命徵象',
+    rule:v => { const x = num(v); if (x >= 39) return ['發燒','alert',`體溫 ${x}℃`]; if (x >= 38) return ['發燒','caution',`體溫 ${x}℃`]; if (x < 35) return ['低體溫','alert',`體溫 ${x}℃`]; } },
+  { keys:['脈搏','心跳','hr','pr','pulse','心率'], name:'脈搏', unit:'次/分', cat:'生命徵象',
+    rule:v => { const x = num(v); if (x > 120) return ['心搏過速','alert',`HR ${x}`]; if (x > 100) return ['心搏過速','caution',`HR ${x}`]; if (x < 50) return ['心搏過緩','alert',`HR ${x}`]; } },
+  { keys:['呼吸','rr','呼吸速率','呼吸次數','resp'], name:'呼吸', unit:'次/分', cat:'生命徵象',
+    rule:v => { const x = num(v); if (x > 24) return ['呼吸急促','caution',`RR ${x}`]; if (x < 10) return ['呼吸過慢','alert',`RR ${x}`]; } },
+  { keys:['血壓','bp','nbp','abp','血壓nbp'], name:'血壓', unit:'mmHg', cat:'生命徵象',
+    rule:v => { const m = String(v).match(/(\d+)\s*\/\s*(\d+)/); if (!m) return; const s = +m[1];
+      if (s < 90) return ['低血壓','alert',`BP ${m[1]}/${m[2]}`]; if (s >= 180) return ['血壓過高','caution',`BP ${m[1]}/${m[2]}`]; } },
+  { keys:['spo2','血氧','o2sat','sao2','血氧濃度','氧氣飽和度'], name:'SpO2', unit:'%', cat:'生命徵象',
+    rule:v => { const x = num(v); if (x < 90) return ['血氧下降','alert',`SpO2 ${x}%`]; if (x < 94) return ['血氧下降','caution',`SpO2 ${x}%`]; } },
+  { keys:['gcs','昏迷指數'], name:'GCS', unit:'', noUnit:true, cat:'評估量表',
+    rule:v => { const m = String(v).match(/E\s*(\d)\s*V\s*(\w)\s*M\s*(\d)/i); let tot = NaN;
+      if (m){ const vv = /^\d$/.test(m[2]) ? +m[2] : 1; tot = +m[1] + vv + +m[3]; } else tot = num(v);
+      if (tot < 15 && tot >= 3) return ['意識改變', tot <= 8 ? 'alert' : 'caution', `GCS ${v}`]; } },
+  { keys:['nrs','疼痛','疼痛指數','疼痛分數','pain','vas'], name:'疼痛 NRS', unit:'分', cat:'評估量表',
+    rule:v => { const x = num(v); if (x >= 7) return ['劇烈疼痛','caution',`NRS ${x} 分`]; } },
+  { keys:['血糖','bs','glucose','glu','ac','pc','onetouch','手指血糖'], name:'血糖', unit:'mg/dL', cat:'檢驗',
+    rule:v => { const x = num(v); if (x < 70) return ['低血糖','alert',`血糖 ${x} mg/dL`]; if (x > 300) return ['高血糖','caution',`血糖 ${x} mg/dL`]; } },
+  { keys:['na','鈉','sodium'], name:'Na', unit:'mmol/L', cat:'檢驗',
+    rule:v => { const x = num(v); if (x < 125) return ['低血鈉','alert',`Na ${x} mmol/L`]; if (x < 135) return ['低血鈉','caution',`Na ${x} mmol/L`]; if (x > 145) return ['高血鈉','caution',`Na ${x} mmol/L`]; } },
+  { keys:['k','鉀','potassium'], name:'K', unit:'mmol/L', cat:'檢驗',
+    rule:v => { const x = num(v); if (x < 3.0 || x > 6.0) return [x < 3 ? '低血鉀' : '高血鉀','alert',`K ${x} mmol/L`]; if (x < 3.5 || x > 5.0) return [x < 3.5 ? '低血鉀' : '高血鉀','caution',`K ${x} mmol/L`]; } },
+  { keys:['cl','氯','chloride'], name:'Cl', unit:'mmol/L', cat:'檢驗' },
+  { keys:['ca','鈣','calcium'], name:'Ca', unit:'mg/dL', cat:'檢驗' },
+  { keys:['mg','鎂','magnesium'], name:'Mg', unit:'mg/dL', cat:'檢驗' },
+  { keys:['wbc','白血球'], name:'WBC', unit:'/μL', cat:'檢驗', unitFor:v => num(v) < 200 ? '×10³/μL' : '/μL',
+    rule:v => { let x = num(v); if (x < 200) x *= 1000; if (x > 12000) return ['白血球偏高','caution',`WBC ${v}`]; if (x < 4000) return ['白血球偏低','caution',`WBC ${v}`]; } },
+  { keys:['hb','hgb','血色素','血紅素','hemoglobin'], name:'Hb', unit:'g/dL', cat:'檢驗',
+    rule:v => { const x = num(v); if (x < 7) return ['貧血','alert',`Hb ${x} g/dL`]; if (x < 10) return ['貧血','caution',`Hb ${x} g/dL`]; } },
+  { keys:['hct','血比容'], name:'Hct', unit:'%', cat:'檢驗' },
+  { keys:['plt','血小板','platelet'], name:'PLT', unit:'×10³/μL', cat:'檢驗',
+    rule:v => { let x = num(v); if (x > 2000) x /= 1000; if (x < 50) return ['血小板低下','alert',`PLT ${v}`]; if (x < 100) return ['血小板低下','caution',`PLT ${v}`]; } },
+  { keys:['seg','neutrophil','嗜中性球'], name:'Seg', unit:'%', cat:'檢驗' },
+  { keys:['crp','c反應蛋白'], name:'CRP', unit:'mg/dL', cat:'檢驗' },
+  { keys:['bun','尿素氮'], name:'BUN', unit:'mg/dL', cat:'檢驗' },
+  { keys:['cr','creatinine','crea','肌酸酐'], name:'Creatinine', unit:'mg/dL', cat:'檢驗' },
+  { keys:['egfr'], name:'eGFR', unit:'mL/min/1.73m²', cat:'檢驗' },
+  { keys:['got','ast'], name:'AST(GOT)', unit:'U/L', cat:'檢驗' },
+  { keys:['gpt','alt'], name:'ALT(GPT)', unit:'U/L', cat:'檢驗' },
+  { keys:['alp','鹼性磷酸酶'], name:'ALP', unit:'U/L', cat:'檢驗' },
+  { keys:['tbil','t-bil','bil','bilirubin','膽紅素','總膽紅素'], name:'T-Bil', unit:'mg/dL', cat:'檢驗' },
+  { keys:['lipase','脂肪酶'], name:'Lipase', unit:'U/L', cat:'檢驗' },
+  { keys:['amylase','澱粉酶'], name:'Amylase', unit:'U/L', cat:'檢驗' },
+  { keys:['ck','cpk'], name:'CK', unit:'U/L', cat:'檢驗' },
+  { keys:['ldh'], name:'LDH', unit:'U/L', cat:'檢驗' },
+  { keys:['lactate','乳酸'], name:'Lactate', unit:'mmol/L', cat:'檢驗',
+    rule:v => { const x = num(v); if (x >= 4) return ['乳酸上升','alert',`Lactate ${x} mmol/L`]; if (x >= 2) return ['乳酸上升','caution',`Lactate ${x} mmol/L`]; } },
+  { keys:['ph'], name:'pH', unit:'', noUnit:true, cat:'檢驗' },
+  { keys:['pco2','paco2'], name:'pCO2', unit:'mmHg', cat:'檢驗' },
+  { keys:['po2','pao2'], name:'pO2', unit:'mmHg', cat:'檢驗' },
+  { keys:['hco3','碳酸氫根'], name:'HCO3', unit:'mmol/L', cat:'檢驗' },
+  { keys:['inr','ptinr'], name:'INR', unit:'', noUnit:true, cat:'檢驗' },
+  { keys:['pt','凝血酶原時間'], name:'PT', unit:'秒', cat:'檢驗' },
+  { keys:['aptt'], name:'aPTT', unit:'秒', cat:'檢驗' },
+  { keys:['d-dimer','ddimer'], name:'D-dimer', unit:'μg/mL FEU', cat:'檢驗' },
+  { keys:['尿量','urineoutput','uo'], name:'尿量', unit:'mL', cat:'輸入輸出' },
+  { keys:['輸入','intake','飲水','飲水量','進食量'], name:'輸入量', unit:'mL', cat:'輸入輸出' },
+  { keys:['輸出','output'], name:'輸出量', unit:'mL', cat:'輸入輸出' },
+  { keys:['體重','bw','weight'], name:'體重', unit:'kg', cat:'其他' },
+  { keys:['身高','bh','height'], name:'身高', unit:'cm', cat:'其他' },
+  { keys:['氧氣','o2','nc','鼻導管','氧氣流量'], name:'氧氣流量', unit:'L/min', cat:'生命徵象' },
+  { keys:['fio2'], name:'FiO2', unit:'%', cat:'生命徵象' },
+  { keys:['iv','留置針','靜脈留置針','ivcatheter'], name:'靜脈留置針', unit:'G', cat:'其他' },
+  { keys:['foley','導尿管','尿管'], name:'導尿管', unit:'Fr', cat:'其他' },
+  { keys:['ng','鼻胃管','ngtube'], name:'鼻胃管', unit:'Fr', cat:'其他' }
+];
+const normKey = s => String(s || '').toLowerCase().replace(/[\s\-_（）()．.:：]/g, '');
+function findUnitEntry(item){
+  const k = normKey(item); if (!k) return null;
+  for (const e of UNIT_DB){ if (e.keys.some(x => normKey(x) === k)) return e; }
+  for (const e of UNIT_DB){ if (e.keys.some(x => { const n = normKey(x); return n.length >= 2 && k.includes(n); })) return e; }
+  return null;
+}
+function splitValueUnit(v){
+  const m = String(v || '').trim().match(/^([<>≧≦≥≤]?\s*-?\d+(?:\.\d+)?(?:\s*\/\s*-?\d+(?:\.\d+)?)?)\s*(.*)$/);
+  if (!m) return { value: String(v || '').trim(), unit:'' };
+  let unit = m[2].trim().replace(/^度$/, '℃').replace(/^%$/, '%');
+  return { value: m[1].replace(/\s+/g, ''), unit };
+}
+function unitCache(){ return LS.get('vnw_unitcache', {}); }
+
+async function applyUnitsAndFlags(result){
+  const ms = Array.isArray(result.measurements) ? result.measurements : [];
+  const flagsOut = [];
+  const unknown = [];
+  const cache = unitCache();
+  for (const m of ms){
+    const sv = splitValueUnit(m.value);
+    m.value = sv.value;
+    if (!m.unit && sv.unit) m.unit = sv.unit;
+    const entry = findUnitEntry(m.item);
+    if (m.unit){ m.unitSource = 'AI'; }
+    if (entry){
+      if (!m.category) m.category = entry.cat;
+      const u = entry.unitFor ? entry.unitFor(m.value) : entry.unit;
+      if (!m.unit && (u || entry.noUnit)){ m.unit = u; m.unitSource = entry.noUnit ? '無單位' : '內建'; }
+      else if (m.unit && u && normKey(m.unit) !== normKey(u)) m.unitNote = `內建單位為 ${u}，請核對`;
+      if (entry.rule){
+        try {
+          const f = entry.rule(m.value);
+          if (f){ m.abnormal = true; flagsOut.push({ type:f[0], severity:f[1], detail:f[2], source:'規則', item: entry.name }); }
+        } catch(e){}
+      }
+    } else if (!m.unit && /\d/.test(m.value)){
+      const c = cache[normKey(m.item)];
+      if (c !== undefined){ m.unit = c; m.unitSource = c ? '網路查詢' : '查無'; }
+      else unknown.push(m);
+    }
+  }
+  if (unknown.length && cfg.webUnits && aiReady()){
+    try {
+      const names = Array.from(new Set(unknown.map(m => m.item)));
+      const prompt = '請上網查詢下列臨床量測或檢驗項目，在台灣醫院檢驗報告常用的單位。只回傳 JSON 物件，格式 {"項目名稱":"單位"}；無單位或查不到請填空字串。項目：' + names.join('、');
+      const { text } = await callGemini({ parts:[{ text: prompt }], useSearch:true, maxTokens:1024 });
+      const map = parseJSON(text);
+      const c2 = unitCache();
+      for (const m of unknown){
+        const u = map[m.item];
+        c2[normKey(m.item)] = typeof u === 'string' ? u : '';
+        if (u){ m.unit = u; m.unitSource = '網路查詢'; } else m.unitSource = '查無';
+      }
+      LS.set('vnw_unitcache', c2);
+    } catch(e){ unknown.forEach(m => m.unitSource = '未查到'); }
+  } else unknown.forEach(m => m.unitSource = '未查到');
+
+  // 合併 AI 註記與規則註記（同類型只留一筆，嚴重度取高）
+  const merged = [];
+  const push = f => {
+    const t = String(f.type || '').trim(); if (!t) return;
+    const ex = merged.find(x => x.type === t);
+    if (ex){ if (f.severity === 'alert') ex.severity = 'alert'; if (f.detail && !String(ex.detail).includes(f.detail)) ex.detail = ex.detail ? ex.detail + '；' + f.detail : f.detail; if (f.followUp && !ex.followUp) ex.followUp = f.followUp; }
+    else merged.push({ id: uid(), type:t, severity: f.severity === 'alert' ? 'alert' : 'caution', detail: f.detail || '', followUp: f.followUp || '', source: f.source || 'AI', resolved:false });
+  };
+  flagsOut.forEach(push);
+  (Array.isArray(result.flags) ? result.flags : []).forEach(f => push({ type:f.type, severity: f.severity === '警示' || f.severity === 'alert' ? 'alert' : 'caution', detail:f.detail, followUp:f.followUp, source:'AI' }));
+  result.measurements = ms;
+  result.flags = merged;
+  result.narrative = addUnitsToNarrative(result.narrative || '', ms);
+  return result;
+}
+// 內文中「項目 + 數值」後面沒有單位時，自動補上表格裡的單位
+function addUnitsToNarrative(text, ms){
+  const reEsc = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  ms.forEach(m => {
+    if (!m.unit || m.unitSource === '無單位' || !m.value) return;
+    const re = new RegExp('(' + reEsc(m.item) + '[^\\d\\n，。；,]{0,6}?)(' + reEsc(m.value) + ')(?![\\d.\\/])(?!\\s*' + reEsc(m.unit) + ')', 'i');
+    text = text.replace(re, (all, pre, val) => pre + val + (/^[℃%]/.test(m.unit) ? '' : ' ') + m.unit);
+  });
+  return text;
+}
+
+/* ================= AI 產出結構化紀錄 ================= */
+const SCHEMA = {
+  type:'OBJECT',
+  properties:{
+    transcript:{ type:'STRING' },
+    narrative:{ type:'STRING' },
+    measurements:{ type:'ARRAY', items:{ type:'OBJECT', properties:{
+      category:{ type:'STRING', enum:['生命徵象','檢驗','評估量表','輸入輸出','其他'] },
+      item:{ type:'STRING' }, value:{ type:'STRING' }, unit:{ type:'STRING' }, note:{ type:'STRING' } },
+      required:['item','value'] } },
+    sections:{ type:'OBJECT', properties:{
+      complaint:{ type:'STRING' }, assessment:{ type:'STRING' }, intervention:{ type:'STRING' },
+      education:{ type:'STRING' }, plan:{ type:'STRING' }, lines:{ type:'STRING' } } },
+    flags:{ type:'ARRAY', items:{ type:'OBJECT', properties:{
+      type:{ type:'STRING' }, detail:{ type:'STRING' }, severity:{ type:'STRING', enum:['注意','警示'] }, followUp:{ type:'STRING' } },
+      required:['type'] } },
+    missing:{ type:'ARRAY', items:{ type:'STRING' } }
+  },
+  required:['transcript','narrative','measurements','flags']
+};
+const SECTION_LABELS = { complaint:'主訴／現況', assessment:'評估', intervention:'處置', education:'衛教', plan:'計畫／追蹤', lines:'管路' };
+
+function buildPrompt(rec, prevFlags){
+  const t = TEMPLATES[rec.template] || TEMPLATES.obs_full;
+  const dx = COACH.find(d => d.id === rec.dx);
+  let coach = '';
+  if (dx){
+    const done = (rec.checked || []).map(i => dx.must[i]).filter(Boolean);
+    coach = `\n【評估提醒】診斷：${dx.title}\n護理師勾選已評估：${done.length ? done.join('、') : '（未勾選）'}\n此診斷的警訊：${dx.warnings.join('、')}\n`;
+  }
+  const prev = prevFlags && prevFlags.length
+    ? `\n【前次紀錄尚在追蹤的異常】${prevFlags.map(f => f.type + (f.detail ? '（' + f.detail + '）' : '')).join('、')}。若本次口述有提到相關數值，請在 narrative 中說明變化（例：已退燒、持續發燒）。\n` : '';
+  return `你是台灣急診的護理紀錄助手。附件是護理師的口述錄音。
+【病人】床號：${rec.bed}。（病歷號由系統另外保存，輸出中不可出現任何病歷號、身分證字號或病人全名。）
+【紀錄類型】${t.label}：${t.hint}${coach}${prev}
+【請輸出 JSON，欄位如下】
+1. transcript：逐字轉寫錄音（繁體中文）。醫學名詞與英文縮寫用正確寫法（BP、HR、SpO2、GCS、NRS、IV、Foley、NG、NPO、CXR、EKG 等）；數字照實寫，不可增減內容。錄音開頭或結尾的「開始」「結束」等操作指令請刪除。
+2. narrative：依紀錄類型寫成可貼入護理紀錄的文字，只寫錄音中有提到的內容，語氣簡潔專業。文中每個數值後面都要緊接單位（例：Na：119 mmol/L、體溫：38.6℃）。
+3. measurements：錄音中出現的每一個數值都列一筆。value 只放數字（血壓寫成 收縮/舒張，例 128/74；GCS 寫 E4V5M6），unit 放單位（例：℃、次/分、mmHg、%、mmol/L、mg/dL、mL、分）。不確定單位時 unit 留空字串，不要猜。
+4. flags：需要特別註記、後續追蹤的異常。例如發燒（體溫≥38℃）、低血壓、心搏過速、血氧下降、劇烈疼痛（NRS≥7）、意識改變、血糖或電解質異常、新出現或惡化的症狀。detail 寫出數值與單位，followUp 寫建議追蹤什麼、多久後再評估。沒有就回空陣列。severity：可能立即危及病人用「警示」，其餘用「注意」。
+5. sections：把內容分到 complaint、assessment、intervention、education、plan、lines，沒有的填空字串。
+6. missing：依紀錄類型，最多 3 項口述沒提到但應評估的項目，每項 15 字內。
+【不可編造】沒說出的生命徵象，narrative 寫「【從NIS帶入V/S】」；GCS 只有口述明確分數才寫，只說意識清楚時寫「GCS：【護理師請評估】」；不要寫出沒有提到的衛教、評估或處置。`;
+}
+
+/* ================= 狀態 ================= */
+let state = 'idle'; // idle | recording | processing
+let mediaRecorder = null, chunks = [], recStream = null, recStart = 0, timerInt = null, recMime = '';
+let liveFinal = '', liveInterim = '';
+let currentRec = null;
+let lastCmdAt = 0;
+
+function setState(s, text){
+  state = s;
+  const mic = $('#mic');
+  mic.classList.toggle('recording', s === 'recording');
+  mic.classList.toggle('processing', s === 'processing');
+  mic.textContent = s === 'recording' ? '⏹' : (s === 'processing' ? '⏳' : '🎤');
+  mic.disabled = s === 'processing';
+  if (text) $('#stateText').textContent = text;
+  else if (s === 'idle') $('#stateText').textContent = cfg.voiceCmd ? `說「${cfg.startWord}」開始錄音，或按麥克風` : '按麥克風開始錄音';
+  updateCmdStatus();
+}
+
+function validatePatient(){
+  const mrn = $('#mrn'), bed = $('#bed');
+  mrn.classList.toggle('missing', !mrn.value.trim());
+  bed.classList.toggle('missing', !bed.value.trim());
+  if (!mrn.value.trim() || !bed.value.trim()){
+    toast('請先輸入病歷號與床號');
+    (mrn.value.trim() ? bed : mrn).focus();
+    return false;
+  }
+  return true;
+}
+
+async function startRecording(via){
+  if (state !== 'idle') return;
+  if (!validatePatient()) return;
+  if (!aiReady()){ toast('請先到設定完成 AI 連線'); openSettings(); return; }
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } });
+  } catch(e){
+    if (e && e.name === 'NotReadableError' && cmdRunning){
+      // 部分手機無法同時聽指令與錄音：先停指令再試
+      stopCmd(true); $('#cmdToggle').checked = false; cfg.voiceCmd = false; saveCfg();
+      try { recStream = await navigator.mediaDevices.getUserMedia({ audio:true }); toast('此裝置無法同時聽指令，錄音中請按按鈕結束'); }
+      catch(e2){ toast('無法開啟麥克風：' + e2.message); return; }
+    } else { toast('無法開啟麥克風：' + (e && e.message ? e.message : e)); return; }
+  }
+  recMime = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mediaRecorder = recMime ? new MediaRecorder(recStream, { mimeType: recMime }) : new MediaRecorder(recStream); }
+  catch(e){ toast('此瀏覽器不支援錄音，請改用 Chrome'); recStream.getTracks().forEach(t => t.stop()); return; }
+  chunks = [];
+  mediaRecorder.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mediaRecorder.onstop = onRecorderStop;
+  mediaRecorder.start(1000);
+  recStart = Date.now();
+  liveFinal = ''; liveInterim = '';
+  $('#live').classList.toggle('hidden', !cmdRunning);
+  renderLive();
+  timerInt = setInterval(() => { $('#timer').textContent = fmtDur((Date.now() - recStart) / 1000); }, 500);
+  setState('recording', cmdRunning ? `錄音中… 說「${cfg.stopWord}」完成` : '錄音中… 再按一次完成');
+  $('#resultCard').classList.add('hidden');
+  if (via === 'voice') toast('🎙️ 已開始錄音');
+}
+
+function stopRecording(via){
+  if (state !== 'recording' || !mediaRecorder) return;
+  clearInterval(timerInt);
+  setState('processing', '處理中…');
+  try { mediaRecorder.stop(); } catch(e){ onRecorderStop(); }
+  if (via === 'voice') toast('✅ 已結束，開始整理紀錄');
+}
+
+async function onRecorderStop(){
+  if (recStream) recStream.getTracks().forEach(t => t.stop());
+  recStream = null;
+  const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || recMime || 'audio/webm' });
+  const dur = (Date.now() - recStart) / 1000;
+  if (blob.size < 2000 || dur < 1.5){ setState('idle'); toast('錄音太短，未儲存'); return; }
+  const rec = {
+    id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    author: cfg.author || '', mrn: $('#mrn').value.trim(), bed: $('#bed').value.trim(),
+    template: $('#template').value, dx: $('#dx').value, checked: getChecked(),
+    durationSec: Math.round(dur), audioBlob: blob, audioMime: blob.type.split(';')[0] || 'audio/webm',
+    liveCaption: (liveFinal + liveInterim).trim(), status:'processing', model: currentModel(),
+    narrative:'', transcript:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
+  };
+  await DB.put(rec); // 先把錄音存起來，AI 失敗也不會遺失
+  currentRec = rec;
+  showResult(rec);
+  await runAI(rec);
+}
+
+async function runAI(rec){
+  setState('processing', 'AI 整理中…（約 5–20 秒）');
+  rec.status = 'processing'; showResult(rec);
+  try {
+    const prev = await previousRecord(rec);
+    const prevFlags = prev ? (prev.flags || []).filter(f => !f.resolved) : [];
+    const b64 = await blobToBase64(rec.audioBlob);
+    const { text, model } = await callGemini({
+      parts:[{ text: buildPrompt(rec, prevFlags) }, { inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: b64 } }],
+      schema: SCHEMA, maxTokens: 12000
+    });
+    let r = parseJSON(text);
+    r = await applyUnitsAndFlags(r);
+    Object.assign(rec, {
+      transcript: r.transcript || '', narrative: r.narrative || '', measurements: r.measurements || [],
+      sections: r.sections || {}, flags: r.flags || [], missing: Array.isArray(r.missing) ? r.missing.slice(0,3) : [],
+      model, status:'done', updatedAt: new Date().toISOString()
+    });
+    await DB.put(rec);
+    showResult(rec);
+    setState('idle');
+    const n = rec.flags.length;
+    toast(n ? `完成，有 ${n} 項異常註記` : '完成，已儲存');
+    syncRecord(rec).then(() => { if (currentRec === rec) showResult(rec); });
+    refreshTrackBadge();
+    window.NursingNoteAPI._listeners.forEach(fn => { try { fn(stripForCloud(rec)); } catch(_){} });
+  } catch(e){
+    rec.status = 'ai_failed'; rec.error = e.message; await DB.put(rec);
+    showResult(rec); setState('idle');
+    toast('AI 整理失敗：' + e.message, 6000);
+  }
+}
+
+/* ================= 語音指令 ================= */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let cmdRec = null, cmdWanted = false, cmdRunning = false, cmdBackoff = 0, cmdMsg = '', cmdLevel = '';
+function initCmd(){
+  if (!SR) return;
+  cmdRec = new SR();
+  cmdRec.lang = 'zh-TW'; cmdRec.continuous = true; cmdRec.interimResults = true;
+  cmdRec.onstart = () => { cmdRunning = true; cmdMsg = ''; cmdLevel = ''; updateCmdStatus(); };
+  cmdRec.onresult = ev => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++){
+      const tx = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal){
+        cmdBackoff = 0;
+        if (handleCmd(tx)) continue;
+        if (state === 'recording') liveFinal += tx;
+      } else interim += tx;
+    }
+    if (state === 'recording'){ liveInterim = interim; renderLive(); }
+  };
+  cmdRec.onerror = ev => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+      cmdWanted = false; cfg.voiceCmd = false; saveCfg(); $('#cmdToggle').checked = false;
+      cmdMsg = '麥克風權限被拒，語音指令已關閉'; cmdLevel = 'err';
+    } else if (ev.error === 'network'){
+      cmdBackoff = Math.min((cmdBackoff || 500) * 2, 8000);
+      cmdMsg = '語音指令連線不穩，重試中（請用 Chrome）'; cmdLevel = 'warn';
+    } else if (ev.error === 'audio-capture'){
+      cmdMsg = '找不到麥克風'; cmdLevel = 'err';
+    }
+    updateCmdStatus();
+  };
+  cmdRec.onend = () => {
+    cmdRunning = false; updateCmdStatus();
+    if (cmdWanted) setTimeout(() => { if (cmdWanted && !cmdRunning) startCmd(); }, cmdBackoff || 250);
+  };
+}
+function startCmd(){
+  if (!cmdRec) return;
+  cmdWanted = true;
+  try { cmdRec.start(); } catch(e){ /* 已在執行 */ }
+}
+function stopCmd(conflict){
+  cmdWanted = false;
+  try { cmdRec && cmdRec.abort(); } catch(e){}
+  cmdRunning = false;
+  if (conflict){ cmdMsg = '此裝置無法同時聽指令與錄音，語音指令已暫停（重新勾選可再開）'; cmdLevel = 'warn'; }
+  updateCmdStatus();
+}
+function isCommand(n, word, phrases){
+  if (!word) return false;
+  if (phrases.some(p => n === p || n.endsWith(p))) return true;
+  if (n === word) return true;
+  return n.length <= word.length + 2 && n.includes(word);
+}
+function handleCmd(tx){
+  const n = String(tx).replace(/[\s，。,.！!？?、:：]/g, '');
+  if (!n) return false;
+  const now = Date.now();
+  if (now - lastCmdAt < 1500) return false;
+  const sw = cfg.startWord.trim(), ew = cfg.stopWord.trim();
+  if (state === 'idle' && isCommand(n, sw, [sw + '紀錄', '紀錄' + sw, sw + '錄音'])){
+    lastCmdAt = now; startRecording('voice'); return true;
+  }
+  if (state === 'recording' && isCommand(n, ew, [ew + '紀錄', '紀錄' + ew, ew + '錄音', '完成紀錄'])){
+    lastCmdAt = now;
+    // 若結束指令前面還有內容，保留到即時字幕
+    const idx = n.lastIndexOf(ew); if (idx > 0) liveFinal += n.slice(0, idx);
+    stopRecording('voice'); return true;
+  }
+  return false;
+}
+function updateCmdStatus(){
+  const dot = $('#cmdDot'), txt = $('#cmdText');
+  dot.className = 'dot';
+  if (!SR){ txt.textContent = '此瀏覽器不支援語音指令，請用 Chrome 或按按鈕'; dot.classList.add('err'); return; }
+  if (cmdMsg){ txt.textContent = cmdMsg; dot.classList.add(cmdLevel || 'warn'); if (!cmdWanted) return; }
+  if (!cmdWanted){ if (!cmdMsg) txt.textContent = '語音指令未啟動'; return; }
+  if (!cmdRunning){ txt.textContent = cmdMsg || '語音指令重新連線中…'; dot.classList.add('warn'); return; }
+  dot.classList.add('on');
+  txt.textContent = state === 'recording' ? `聆聽中：說「${cfg.stopWord}」完成` : (state === 'processing' ? '整理中，指令暫停' : `待命中：說「${cfg.startWord}」開始`);
+}
+function renderLive(){
+  const el = $('#live');
+  el.innerHTML = '<span class="hint" style="margin:0">即時字幕（僅供參考，正式逐字稿由 AI 產生）</span>\n' + esc(liveFinal) + '<span class="interim">' + esc(liveInterim) + '</span>';
+}
+
+/* ================= 結果呈現 ================= */
+function flagChip(f){
+  const cls = f.resolved ? 'ok' : (f.severity === 'alert' ? 'alert' : 'caution');
+  return `<span class="chip ${cls}" title="${esc(f.followUp || '')}">${f.resolved ? '✓' : (f.severity === 'alert' ? '⚠️' : '●')} ${esc(f.type)}${f.detail ? '：' + esc(f.detail) : ''}</span>`;
+}
+function measurementTable(ms){
+  if (!ms || !ms.length) return '<div class="hint">口述中沒有數值。</div>';
+  const order = ['生命徵象','評估量表','檢驗','輸入輸出','其他'];
+  const sorted = ms.slice().sort((a, b) => order.indexOf(a.category || '其他') - order.indexOf(b.category || '其他'));
+  return `<div class="tbl-wrap"><table><thead><tr><th>類別</th><th>項目</th><th>數值</th><th>單位</th><th>單位來源</th></tr></thead><tbody>${
+    sorted.map(m => `<tr class="${m.abnormal ? 'abn' : ''}"><td>${esc(m.category || '其他')}</td><td>${esc(m.item)}</td><td class="num">${esc(m.value)}${m.abnormal ? ' ⚠️' : ''}</td><td>${esc(m.unit || '—')}${m.unitNote ? '<div class="hint" style="margin:2px 0 0">' + esc(m.unitNote) + '</div>' : ''}</td><td><span class="src">${esc(m.unitSource || '')}</span></td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+function sectionsHtml(sec){
+  const items = Object.keys(SECTION_LABELS).filter(k => sec && sec[k] && String(sec[k]).trim());
+  if (!items.length) return '';
+  return items.map(k => `<div class="sec"><b>${SECTION_LABELS[k]}</b> ${esc(sec[k])}</div>`).join('');
+}
+function recordText(rec){ return (rec.narrative || '').trim(); }
+function structuredText(rec){
+  const lines = [];
+  lines.push(`床號：${rec.bed}　病歷號：${rec.mrn}　時間：${fmtTime(rec.createdAt)}`);
+  (rec.measurements || []).forEach(m => lines.push(`${m.item}：${m.value}${m.unit ? ' ' + m.unit : ''}${m.abnormal ? '（異常）' : ''}`));
+  const sec = rec.sections || {};
+  Object.keys(SECTION_LABELS).forEach(k => { if (sec[k]) lines.push(`${SECTION_LABELS[k]}：${sec[k]}`); });
+  if ((rec.flags || []).length) lines.push('註記：' + rec.flags.map(f => f.type + (f.detail ? '（' + f.detail + '）' : '')).join('、'));
+  return lines.join('\n');
+}
+function audioUrlFor(rec){ return rec.audioBlob ? URL.createObjectURL(rec.audioBlob) : ''; }
+
+function recordBodyHtml(rec, opts){
+  opts = opts || {};
+  if (rec.status === 'processing') return `<div class="row"><span class="spinner"></span><span>AI 整理中，錄音已先存好…</span></div>`;
+  let h = '';
+  if (rec.status === 'ai_failed'){
+    h += `<div class="warnbox">AI 整理失敗：${esc(rec.error || '')}。錄音已保存，可按「重新產出」。</div>`;
+  }
+  if ((rec.flags || []).length) h += `<div class="flags" style="margin-bottom:12px">${rec.flags.map(flagChip).join('')}</div>`;
+  if (rec.compareHtml) h += rec.compareHtml;
+  if (rec.status !== 'ai_failed'){
+    h += `<label class="f"><span>護理紀錄（可修改）</span><textarea class="note" data-edit="narrative" data-id="${esc(rec.id)}">${esc(rec.narrative)}</textarea></label>`;
+    h += `<h2 style="margin:16px 0 8px">數值與單位</h2>` + measurementTable(rec.measurements);
+    const s = sectionsHtml(rec.sections);
+    if (s) h += `<h2 style="margin:16px 0 8px">結構化內容</h2>` + s;
+    if ((rec.missing || []).length) h += `<div class="compare" style="margin-top:12px">📋 可能漏評：${rec.missing.map(esc).join('、')}</div>`;
+  }
+  const au = opts.audioUrl || audioUrlFor(rec);
+  h += `<details class="trans"${opts.openTranscript ? ' open' : ''}><summary>逐字稿與錄音（${fmtDur(rec.durationSec)}）</summary>`;
+  h += au ? `<audio controls preload="none" src="${esc(au)}" style="width:100%;margin:8px 0"></audio>` : (rec.audioFileId ? `<div class="row" style="margin:8px 0"><button class="btn" type="button" data-act="loadAudio" data-id="${esc(rec.id)}" data-file="${esc(rec.audioFileId)}" data-mime="${esc(rec.audioMime || '')}">▶️ 載入雲端錄音</button></div>` : '<div class="hint">此紀錄沒有錄音檔</div>');
+  h += `<div class="pre">${esc(rec.transcript || rec.liveCaption || '（尚無逐字稿）')}</div></details>`;
+  h += `<div class="row" style="margin-top:14px">
+    <button class="btn primary" type="button" data-act="copyNote" data-id="${esc(rec.id)}">📋 複製紀錄</button>
+    <button class="btn" type="button" data-act="copyStruct" data-id="${esc(rec.id)}">📊 複製結構化</button>
+    <button class="btn" type="button" data-act="emr" data-id="${esc(rec.id)}">🏥 轉入病歷</button>
+    <button class="btn" type="button" data-act="redo" data-id="${esc(rec.id)}">🔄 重新產出</button>
+  </div>`;
+  return h;
+}
+function showResult(rec){
+  $('#resultCard').classList.remove('hidden');
+  $('#resultTitle').textContent = `${rec.bed} 床 · ${(TEMPLATES[rec.template] || {}).label || ''} · ${fmtTime(rec.createdAt)}`;
+  $('#resultSync').textContent = rec.synced ? '☁️ 已存雲端' : (cloudReady() ? '⏳ 尚未同步' : '💾 已存本機');
+  $('#resultBody').innerHTML = recordBodyHtml(rec);
+}
+
+async function previousRecord(rec){
+  const all = await listLocal({ mrn: rec.mrn });
+  const prev = all.filter(r => r.id !== rec.id && r.status === 'done' && new Date(r.createdAt) < new Date(rec.createdAt));
+  let p = prev[0] || null;
+  if (!p && cloudReady()){
+    try { const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn, limit: 3 } }); p = (r.records || []).find(x => x.id !== rec.id) || null; } catch(e){}
+  }
+  return p;
+}
+async function showPrevious(){
+  const mrn = $('#mrn').value.trim(); const box = $('#prevBox');
+  if (!mrn){ box.classList.add('hidden'); return; }
+  const all = await listLocal({ mrn });
+  const p = all.find(r => r.status === 'done');
+  if (!p){ box.classList.add('hidden'); return; }
+  const open = (p.flags || []).filter(f => !f.resolved);
+  const vit = (p.measurements || []).filter(m => m.category === '生命徵象').map(m => `${m.item} ${m.value}${m.unit ? ' ' + m.unit : ''}`).join('、');
+  box.innerHTML = `<b>前次紀錄</b>（${fmtTime(p.createdAt)}，${esc(p.bed)} 床）${vit ? '：' + esc(vit) : ''}` +
+    (open.length ? `<div class="flags" style="margin-top:6px">${open.map(flagChip).join('')}</div><div class="hint">這次錄音若提到相關數值，AI 會一併說明變化。</div>` : '');
+  box.classList.remove('hidden');
+  if (!$('#bed').value.trim() && p.bed) $('#bed').value = p.bed;
+}
+
+/* ================= 評估提醒 ================= */
+function getChecked(){ return $$('#coachList input[type=checkbox]').map((c, i) => c.checked ? i : -1).filter(i => i >= 0); }
+function renderCoach(){
+  const dx = COACH.find(d => d.id === $('#dx').value);
+  const box = $('#coachBox');
+  if (!dx){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  $('#coachTitle').textContent = `${dx.icon} ${dx.title} — 評估提醒（勾選已完成的項目）`;
+  $('#coachList').innerHTML = dx.must.map((m, i) => `<label class="ck"><input type="checkbox" data-i="${i}"><span>${esc(m)}</span></label>`).join('');
+  $('#coachWarn').innerHTML = '<b>警訊（立即通知醫師）</b><br>' + dx.warnings.map(esc).join('<br>');
+}
+
+/* ================= 查詢 ================= */
+async function listLocal(filter){
+  filter = filter || {};
+  let all = await DB.all();
+  all = all.filter(r => {
+    if (filter.mrn && r.mrn !== filter.mrn) return false;
+    if (filter.bed && r.bed !== filter.bed) return false;
+    if (filter.from && r.createdAt.slice(0,10) < filter.from) return false;
+    if (filter.to && r.createdAt.slice(0,10) > filter.to) return false;
+    if (filter.since && new Date(r.createdAt) < new Date(filter.since)) return false;
+    if (filter.flaggedOnly && !(r.flags || []).length) return false;
+    if (filter.keyword){
+      const k = filter.keyword.toLowerCase();
+      const hay = [r.narrative, r.transcript, r.liveCaption, JSON.stringify(r.measurements || []), JSON.stringify(r.flags || [])].join(' ').toLowerCase();
+      if (!hay.includes(k)) return false;
+    }
+    return true;
+  });
+  return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+async function listRecords(filter){
+  const local = await listLocal(filter);
+  if (!cloudReady()) return { records: local, source:'本機' };
+  try {
+    const r = await gasCall({ action:'list', filter });
+    const cloud = r.records || [];
+    const byId = new Map(cloud.map(x => [x.id, Object.assign(x, { _cloud:true })]));
+    local.forEach(l => { if (byId.has(l.id)) { const c = byId.get(l.id); c.audioBlob = l.audioBlob; c.synced = true; } else byId.set(l.id, l); });
+    return { records: Array.from(byId.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), source:'雲端＋本機' };
+  } catch(e){
+    return { records: local, source:'本機（雲端查詢失敗：' + e.message + '）' };
+  }
+}
+let lastList = [];
+async function doQuery(){
+  const filter = { mrn: $('#qMrn').value.trim(), bed: $('#qBed').value.trim(), keyword: $('#qKw').value.trim(),
+    from: $('#qFrom').value, to: $('#qTo').value, flaggedOnly: $('#qFlag').checked };
+  $('#qResults').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  const { records, source } = await listRecords(filter);
+  lastList = records;
+  $('#qSource').textContent = `資料來源：${source}，共 ${records.length} 筆`;
+  if (!records.length){ $('#qResults').innerHTML = '<div class="empty">沒有符合的紀錄</div>'; return; }
+  $('#qResults').innerHTML = records.map(r => `<div class="item" data-open="${esc(r.id)}">
+    <div class="top"><span><b>${esc(r.bed)} 床</b> · 病歷號 ${esc(r.mrn)} · ${esc((TEMPLATES[r.template] || {}).label || '')}</span><span>${fmtTime(r.createdAt)} · ${fmtDur(r.durationSec)} ${r._cloud || r.synced ? '☁️' : '💾'}</span></div>
+    ${(r.flags || []).length ? `<div class="flags" style="margin-top:6px">${r.flags.map(flagChip).join('')}</div>` : ''}
+    <div class="snip">${esc(r.narrative || r.transcript || (r.status === 'ai_failed' ? 'AI 整理失敗，錄音已保存' : ''))}</div>
+  </div>`).join('');
+}
+async function openDetail(id){
+  let rec = lastList.find(r => r.id === id) || await DB.get(id);
+  if (!rec) return;
+  $('#detailTitle').textContent = `${rec.bed} 床 · 病歷號 ${rec.mrn} · ${fmtTime(rec.createdAt)}`;
+  $('#detailBody').innerHTML = recordBodyHtml(rec, { openTranscript:true });
+  openModal('#detailModal');
+}
+async function syncAll(){
+  if (!cloudReady()){ toast('請先在設定填入雲端網址與存取碼'); return; }
+  const all = await DB.all();
+  const pending = all.filter(r => !r.synced && r.status !== 'processing');
+  if (!pending.length){ toast('全部都已同步'); return; }
+  toast(`上傳中（${pending.length} 筆）…`, 10000);
+  let ok = 0; for (const r of pending){ if (await syncRecord(r)) ok++; }
+  toast(`已上傳 ${ok}／${pending.length} 筆`);
+}
+
+/* ================= 追蹤 ================= */
+const TREND_ITEMS = ['體溫','脈搏','呼吸','血壓','SpO2','疼痛 NRS','血糖','GCS'];
+async function doTrack(){
+  const days = +$('#tRange').value; const showAll = $('#tAll').checked;
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  $('#tResults').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  const { records } = await listRecords({ since, from: since.slice(0,10) });
+  const groups = new Map();
+  records.filter(r => r.status === 'done').forEach(r => { if (!groups.has(r.mrn)) groups.set(r.mrn, []); groups.get(r.mrn).push(r); });
+  const cards = [];
+  for (const [mrn, recs] of groups){
+    recs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const flags = [];
+    recs.forEach(r => (r.flags || []).forEach(f => { if (showAll || !f.resolved) flags.push({ f, r }); }));
+    if (!flags.length) continue;
+    const last = recs[recs.length - 1];
+    // 生命徵象趨勢
+    const cols = recs.map(r => fmtTime(r.createdAt));
+    const rows = TREND_ITEMS.map(name => {
+      const vals = recs.map(r => { const m = (r.measurements || []).find(x => { const e = findUnitEntry(x.item); return e && e.name === name; }); return m ? m : null; });
+      if (!vals.some(Boolean)) return '';
+      const unit = (vals.find(Boolean) || {}).unit || '';
+      return `<tr><th>${esc(name)}${unit ? ' (' + esc(unit) + ')' : ''}</th>${vals.map(m => m ? `<td class="num" style="${m.abnormal ? 'color:var(--danger)' : ''}">${esc(m.value)}${m.abnormal ? ' ⚠️' : ''}</td>` : '<td>—</td>').join('')}</tr>`;
+    }).join('');
+    cards.push(`<div class="card">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(last.bed)} 床 · 病歷號 ${esc(mrn)}</h2><span class="hint" style="margin:0">${recs.length} 筆紀錄，最新 ${fmtTime(last.createdAt)}</span></div>
+      <div style="margin-top:10px">${flags.map(({ f, r }) => `<div class="row" style="margin:6px 0">${flagChip(f)}<span class="hint" style="margin:0">${fmtTime(r.createdAt)}${f.followUp ? ' · 追蹤：' + esc(f.followUp) : ''}</span><span class="grow"></span>${f.resolved ? '' : `<button class="btn" type="button" data-act="resolve" data-id="${esc(r.id)}" data-flag="${esc(f.id)}">已解除</button>`}</div>`).join('')}</div>
+      ${rows ? `<div class="tbl-wrap trend" style="margin-top:10px"><table><thead><tr><th>項目</th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+    </div>`);
+  }
+  $('#tResults').innerHTML = cards.length ? cards.join('') : '<div class="empty">目前沒有需要追蹤的異常</div>';
+  lastList = records;
+}
+async function resolveFlag(recId, flagId){
+  let rec = await DB.get(recId) || lastList.find(r => r.id === recId);
+  if (!rec) return;
+  (rec.flags || []).forEach(f => { if (f.id === flagId){ f.resolved = true; f.resolvedAt = new Date().toISOString(); f.resolvedBy = cfg.author || ''; } });
+  rec.updatedAt = new Date().toISOString();
+  if (await DB.get(recId)) await DB.put(rec);
+  if (cloudReady()){ try { await gasCall({ action:'updateFlags', id: recId, flags: rec.flags }); } catch(e){ toast('雲端更新失敗：' + e.message); } }
+  toast('已標記解除'); doTrack(); refreshTrackBadge();
+}
+async function refreshTrackBadge(){
+  const since = new Date(Date.now() - 3 * 86400000).toISOString();
+  const all = await listLocal({ since });
+  const n = all.reduce((s, r) => s + (r.flags || []).filter(f => !f.resolved).length, 0);
+  const b = $('#trackBadge'); b.textContent = n; b.classList.toggle('hidden', !n);
+}
+
+/* ================= 轉入病歷（預留介面） ================= */
+function buildEMRPayload(rec){
+  return {
+    schema: 'cych-ed-nursing-note/1.0',
+    patient: { mrn: rec.mrn, bed: rec.bed },
+    encounter: { recordedAt: rec.createdAt, author: rec.author || '', noteType: (TEMPLATES[rec.template] || {}).label || rec.template },
+    note: { text: recordText(rec), sections: rec.sections || {} },
+    observations: (rec.measurements || []).map(m => ({ category: m.category || '其他', item: m.item, value: m.value, unit: m.unit || '', abnormal: !!m.abnormal })),
+    flags: (rec.flags || []).map(f => ({ type: f.type, severity: f.severity, detail: f.detail, followUp: f.followUp, resolved: !!f.resolved })),
+    source: { id: rec.id, model: rec.model, durationSec: rec.durationSec, audioFileId: rec.audioFileId || null }
+  };
+}
+async function exportToEMR(rec){
+  const payload = buildEMRPayload(rec);
+  if (!cfg.emrUrl){
+    $('#detailTitle').textContent = '轉入病歷（API 尚未設定）';
+    $('#detailBody').innerHTML = `<div class="hint" style="margin-top:0">病歷系統的 API 還沒接上。下方是這筆紀錄的標準格式，可複製給資訊室對接；接好後到設定填入網址即可直接送出。</div>
+      <div class="pre" style="max-height:50vh;overflow:auto;font-size:13px">${esc(JSON.stringify(payload, null, 2))}</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" type="button" data-act="copyEmrJson" data-id="${esc(rec.id)}">複製 JSON</button></div>`;
+    openModal('#detailModal'); return;
+  }
+  try {
+    const res = await fetch(cfg.emrUrl, { method:'POST', headers: Object.assign({ 'Content-Type':'application/json' }, cfg.emrToken ? { Authorization:'Bearer ' + cfg.emrToken } : {}), body: JSON.stringify(payload) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    rec.emrSentAt = new Date().toISOString(); if (await DB.get(rec.id)) await DB.put(rec);
+    toast('已送出至病歷系統');
+  } catch(e){ toast('送出失敗：' + e.message, 5000); }
+}
+// 對外介面：之後其他系統（例如病歷或交班系統）可以直接呼叫
+window.NursingNoteAPI = {
+  version: '1.0',
+  getCurrent: () => currentRec ? stripForCloud(currentRec) : null,
+  buildEMRPayload: rec => buildEMRPayload(rec || currentRec),
+  exportToEMR: rec => exportToEMR(rec || currentRec),
+  list: filter => listRecords(filter || {}),
+  _listeners: [],
+  onRecordSaved(fn){ this._listeners.push(fn); }
+};
+
+/* ================= 設定視窗 ================= */
+function openModal(sel){ $(sel).classList.add('open'); }
+function closeModal(el){ el.closest('.modal').classList.remove('open'); }
+function openSettings(){
+  $('#sMode').value = cfg.mode; $('#sKey').value = cfg.apiKey; $('#sModel').value = cfg.model; $('#sCustom').value = cfg.customModel;
+  $('#sGas').value = cfg.gasUrl; $('#sToken').value = cfg.gasToken; $('#sAuthor').value = cfg.author; $('#sBudget').value = cfg.budget;
+  $('#sStart').value = cfg.startWord; $('#sStop').value = cfg.stopWord; $('#sWeb').checked = cfg.webUnits;
+  $('#sEmr').value = cfg.emrUrl; $('#sEmrToken').value = cfg.emrToken;
+  $('#testAIResult').textContent = ''; $('#testGasResult').textContent = '';
+  updateSettingsView(); openModal('#settingsModal');
+}
+function readSettings(){
+  cfg.mode = $('#sMode').value; cfg.apiKey = $('#sKey').value.trim(); cfg.model = $('#sModel').value; cfg.customModel = $('#sCustom').value.trim();
+  cfg.gasUrl = $('#sGas').value.trim(); cfg.gasToken = $('#sToken').value.trim(); cfg.author = $('#sAuthor').value.trim();
+  cfg.budget = parseFloat($('#sBudget').value) || 0; cfg.startWord = $('#sStart').value.trim() || '開始'; cfg.stopWord = $('#sStop').value.trim() || '結束';
+  cfg.webUnits = $('#sWeb').checked; cfg.emrUrl = $('#sEmr').value.trim(); cfg.emrToken = $('#sEmrToken').value.trim();
+}
+function updateSettingsView(){
+  $('#sKeyWrap').classList.toggle('hidden', $('#sMode').value === 'proxy');
+  const id = $('#sModel').value === 'custom' ? ($('#sCustom').value.trim() || '（自訂）') : $('#sModel').value;
+  const p = modelPrice($('#sModel').value);
+  $('#sPrice').textContent = `${id}：輸入每百萬 token 約 US$${p[0]}、輸出約 US$${p[1]}（依 Google 公告，可能調整）。免費層的資料會被 Google 用於改善產品，正式使用病人錄音請改用付費帳號。`;
+  const u = getUsage();
+  $('#sUsage').textContent = `${u.month}：呼叫 ${u.calls} 次，輸入 ${u.inTok.toLocaleString()} / 輸出 ${u.outTok.toLocaleString()} token，上網查詢 ${u.searches} 次，估計 US$${u.cost.toFixed(3)}（只統計這台裝置）`;
+}
+
+/* ================= 初始化 ================= */
+function renderSelects(){
+  $('#template').innerHTML = Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('');
+  $('#dx').innerHTML = '<option value="">不使用</option>' + COACH.map(d => `<option value="${esc(d.id)}">${esc(d.icon + ' ' + d.title)}</option>`).join('');
+  $('#sModel').innerHTML = MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join('');
+  const last = LS.get('vnw_last', {});
+  if (last.template && TEMPLATES[last.template]) $('#template').value = last.template;
+}
+function switchView(v){
+  $$('nav.tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  ['record','search','track'].forEach(x => $('#view-' + x).classList.toggle('hidden', x !== v));
+  if (v === 'track') doTrack();
+}
+
+document.addEventListener('click', async ev => {
+  const t = ev.target.closest('[data-act],[data-open],[data-close],[data-view]');
+  if (!t) return;
+  if (t.dataset.view){ switchView(t.dataset.view); return; }
+  if (t.hasAttribute('data-close')){ closeModal(t); return; }
+  if (t.dataset.open){ openDetail(t.dataset.open); return; }
+  const id = t.dataset.id;
+  const rec = (currentRec && currentRec.id === id) ? currentRec : (lastList.find(r => r.id === id) || await DB.get(id));
+  switch (t.dataset.act){
+    case 'copyNote': if (rec) copyText(recordText(rec), '護理紀錄'); break;
+    case 'copyStruct': if (rec) copyText(structuredText(rec), '結構化內容'); break;
+    case 'copyEmrJson': if (rec) copyText(JSON.stringify(buildEMRPayload(rec), null, 2), 'JSON'); break;
+    case 'emr': if (rec) exportToEMR(rec); break;
+    case 'redo':
+      if (!rec) break;
+      if (!rec.audioBlob){ const full = await DB.get(rec.id); if (full && full.audioBlob) rec.audioBlob = full.audioBlob; }
+      if (!rec.audioBlob){ toast('這台裝置沒有這筆錄音，無法重新產出'); break; }
+      closeAllModals(); switchView('record'); currentRec = rec; showResult(rec); runAI(rec); break;
+    case 'resolve': resolveFlag(id, t.dataset.flag); break;
+    case 'loadAudio':
+      t.disabled = true; t.textContent = '載入中…';
+      try { const r = await gasCall({ action:'getAudio', fileId: t.dataset.file });
+        const url = URL.createObjectURL(base64ToBlob(r.base64, r.mime || t.dataset.mime));
+        const a = document.createElement('audio'); a.controls = true; a.src = url; a.style.width = '100%'; t.replaceWith(a); a.play().catch(() => {});
+      } catch(e){ t.disabled = false; t.textContent = '▶️ 載入雲端錄音'; toast('載入失敗：' + e.message); }
+      break;
+  }
+});
+function closeAllModals(){ $$('.modal').forEach(m => m.classList.remove('open')); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAllModals(); });
+document.addEventListener('change', async ev => {
+  const t = ev.target;
+  if (t.closest('#coachList')){ t.closest('.ck').classList.toggle('on', t.checked); }
+});
+document.addEventListener('focusout', async ev => {
+  const t = ev.target;
+  if (t.matches('textarea[data-edit]')){
+    const rec = (currentRec && currentRec.id === t.dataset.id) ? currentRec : await DB.get(t.dataset.id);
+    if (rec && rec[t.dataset.edit] !== t.value){
+      rec[t.dataset.edit] = t.value; rec.edited = true; rec.updatedAt = new Date().toISOString();
+      rec.synced = false; await DB.put(rec); syncRecord(rec);
+    }
+  }
+});
+
+$('#mic').addEventListener('click', () => { if (state === 'idle') startRecording('button'); else if (state === 'recording') stopRecording('button'); });
+$('#cmdToggle').addEventListener('change', e => {
+  cfg.voiceCmd = e.target.checked; saveCfg(); cmdMsg = '';
+  if (cfg.voiceCmd) startCmd(); else stopCmd();
+  setState(state);
+});
+$('#btnSettings').addEventListener('click', openSettings);
+$('#sMode').addEventListener('change', updateSettingsView);
+$('#sModel').addEventListener('change', updateSettingsView);
+$('#btnSaveSettings').addEventListener('click', () => { readSettings(); saveCfg(); renderHeader(); closeAllModals(); setState(state); toast('已儲存設定'); });
+$('#btnResetUsage').addEventListener('click', () => { LS.set('vnw_usage', {}); updateSettingsView(); renderHeader(); });
+$('#btnTestAI').addEventListener('click', async () => {
+  const old = Object.assign({}, cfg); readSettings();
+  $('#testAIResult').innerHTML = '<span class="spinner"></span>';
+  try { const { text, model } = await callGemini({ parts:[{ text:'請只回覆兩個字：正常' }], maxTokens:64 }); $('#testAIResult').textContent = `✅ ${model} 回覆：${text.trim().slice(0, 20)}`; }
+  catch(e){ $('#testAIResult').textContent = '❌ ' + e.message; }
+  cfg = old;
+});
+$('#btnTestGas').addEventListener('click', async () => {
+  const old = Object.assign({}, cfg); readSettings();
+  $('#testGasResult').innerHTML = '<span class="spinner"></span>';
+  try { const r = await gasCall({ action:'ping' }); $('#testGasResult').textContent = '✅ 雲端正常' + (r.proxy ? '，統一帳號 AI 已設定' : '（統一帳號 AI 尚未設定 Key）'); }
+  catch(e){ $('#testGasResult').textContent = '❌ ' + e.message; }
+  cfg = old;
+});
+$('#dx').addEventListener('change', renderCoach);
+$('#template').addEventListener('change', () => LS.set('vnw_last', { template: $('#template').value }));
+$('#mrn').addEventListener('change', showPrevious);
+$('#mrn').addEventListener('input', e => e.target.classList.remove('missing'));
+$('#bed').addEventListener('input', e => e.target.classList.remove('missing'));
+$('#btnQuery').addEventListener('click', doQuery);
+$('#qKw').addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
+$('#btnSyncAll').addEventListener('click', syncAll);
+$('#btnTrack').addEventListener('click', doTrack);
+$('#tRange').addEventListener('change', doTrack);
+$('#tAll').addEventListener('change', doTrack);
+
+(async function init(){
+  renderSelects();
+  await DB.open();
+  initCmd();
+  $('#cmdToggle').checked = !!cfg.voiceCmd;
+  if (!SR) $('#cmdToggle').disabled = true;
+  if (cfg.voiceCmd && SR) startCmd();
+  renderHeader(); setState('idle'); refreshTrackBadge();
+})();
+</script>
+</body>
+</html>
