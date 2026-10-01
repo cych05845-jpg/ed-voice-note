@@ -933,6 +933,7 @@ let mediaRecorder = null, chunks = [], recStream = null, recStart = 0, timerInt 
 let liveFinal = '', liveInterim = '';
 let currentRec = null;
 let lastCmdAt = 0;
+let supplementFor = null;   // 正在補充口述的紀錄
 
 function setState(s, text){
   state = s;
@@ -1071,7 +1072,8 @@ function validatePatient(){
 
 async function startRecording(via){
   if (state !== 'idle') return;
-  if (!validatePatient()) return;
+  if (via !== 'supplement') supplementFor = null;
+  if (!supplementFor && !validatePatient()) return;
   if (!aiReady()){ toast('請先到設定完成 AI 連線'); openSettings(); return; }
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } });
@@ -1095,8 +1097,8 @@ async function startRecording(via){
   $('#live').classList.toggle('hidden', !cmdRunning);
   renderLive();
   timerInt = setInterval(() => { $('#timer').textContent = fmtDur((Date.now() - recStart) / 1000); }, 500);
-  setState('recording', cmdRunning ? `錄音中… 說「${cfg.stopWord}」完成` : '錄音中… 再按一次完成');
-  $('#resultCard').classList.add('hidden');
+  setState('recording', (supplementFor ? `補充 ${supplementFor.bed} 床的紀錄：` : '') + (cmdRunning ? `錄音中… 說「${cfg.stopWord}」完成` : '錄音中… 再按一次完成'));
+  if (!supplementFor) $('#resultCard').classList.add('hidden');
   if (via === 'voice') toast('🎙️ 已開始錄音');
 }
 
@@ -1113,7 +1115,18 @@ async function onRecorderStop(){
   recStream = null;
   const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || recMime || 'audio/webm' });
   const dur = (Date.now() - recStart) / 1000;
-  if (blob.size < 2000 || dur < 1.5){ setState('idle'); toast('錄音太短，未儲存'); return; }
+  if (blob.size < 2000 || dur < 1.5){ supplementFor = null; setState('idle'); toast('錄音太短，未儲存'); return; }
+  if (supplementFor){
+    const parent = supplementFor; supplementFor = null;
+    const seg = {
+      id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), author: cfg.author || '',
+      mrn: parent.mrn, bed: parent.bed, age: parent.age || '', problem: parent.problem || '', template:'supplement', dx:'',
+      sections:{ parentId: parent.id }, durationSec: Math.round(dur), audioBlob: blob, audioMime: blob.type.split(';')[0] || 'audio/webm',
+      status:'processing', model: currentModel(), narrative:'', transcript:'', measurements:[], flags:[], missing:[], synced:false
+    };
+    await DB.put(seg);
+    return runSupplement(parent, seg);
+  }
   const rec = {
     id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     author: cfg.author || '', mrn: await resolveCaseKey($('#bed').value.trim()), bed: $('#bed').value.trim(), age: $('#age').value.trim(), problem: $('#problem').value.trim(),
@@ -1127,6 +1140,102 @@ async function onRecorderStop(){
   currentRec = rec;
   showResult(rec);
   await runAI(rec);
+}
+
+/* ================= 補充口述：同一筆紀錄再錄一段，整合進去 ================= */
+const hhmm = iso => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+function segsOf(rec){ return (rec.editLog || []).filter(e => e.kind === '補充口述'); }
+function buildSupplementPrompt(rec){
+  return buildPrompt(rec, [], null) + `
+
+【補充模式：這是同一筆紀錄的補充口述，以下規則優先於上面的欄位說明】
+目前的護理紀錄（護理師可能已修改過，以此為準）：
+<<<
+${rec.narrative || ''}
+>>>
+先前的口述逐字稿：
+<<<
+${rec.transcript || ''}
+>>>
+附件是護理師之後補充的口述錄音。請依下列規則輸出：
+1. transcript：只轉寫這段補充錄音。
+2. narrative：輸出整合後的「完整」R 紀錄：
+   - 目前紀錄中已經寫好的句子一字不改，維持原順序。
+   - 補充口述有提到的內容，填進對應的【…】位置並拿掉該【…】；沒有對應位置的新內容，加在最相關的句子後面（「續觀」之前）。
+   - 補充口述沒提到的【…】原樣保留。
+   - 不可加入補充口述與原紀錄都沒有的內容。
+   - 補充的數值與原紀錄不同時，保留原句，在後面寫「${hhmm(new Date().toISOString())} 再評估…」。
+3. measurements、flags、tubes：只列補充錄音中出現的。
+4. sections：只填補充錄音的內容，沒有的填空字串。
+5. fourA、ngRisk：只依補充錄音判斷，規則同上。
+6. missing：以整合後的完整紀錄判斷。`;
+}
+async function startSupplement(rec){
+  if (state !== 'idle'){ toast('請先完成目前的錄音'); return; }
+  if (rec.template === 'kardex' || rec.status !== 'done') return;
+  currentRec = rec; showResult(rec);
+  supplementFor = rec;
+  await startRecording('supplement');
+  if (state !== 'recording') supplementFor = null;
+  else toast('🎙️ 補充口述錄音中，說完按麥克風結束');
+}
+function mergeMeasurements(oldList, newList){
+  const key = m => { const en = findUnitEntry(m.item); return en ? en.name : String(m.item || '').trim().toLowerCase(); };
+  const out = (oldList || []).slice();
+  (newList || []).forEach(n => { const i = out.findIndex(o => key(o) === key(n)); if (i >= 0) out[i] = n; else out.push(n); });
+  return out;
+}
+async function runSupplement(rec, seg){
+  setState('processing', 'AI 整合補充內容中…（約 5–20 秒）');
+  const before = { narrative: rec.narrative || '' };
+  try {
+    const b64 = await blobToBase64(seg.audioBlob);
+    const { text, model } = await callGemini({
+      parts:[{ text: buildSupplementPrompt(rec) }, { inline_data:{ mime_type: seg.audioMime || 'audio/webm', data: b64 } }],
+      schema: SCHEMA, maxTokens: 12000
+    });
+    let r = parseJSON(text);
+    r = await applyUnitsAndFlags(r);
+    seg.transcript = r.transcript || ''; seg.status = 'done'; seg.model = model; seg.updatedAt = new Date().toISOString();
+    await DB.put(seg);
+    const first = /^【\d{1,2}:\d{2}/.test(rec.transcript || '') ? rec.transcript : `【${hhmm(rec.createdAt)}】${rec.transcript || ''}`;
+    rec.transcript = `${first}\n\n【${hhmm(seg.createdAt)} 補充】${seg.transcript}`;
+    const merged = (r.narrative || '').trim() || before.narrative;
+    rec.narrative = merged; rec.narrativeAI = merged; rec.edited = false;
+    rec.measurements = mergeMeasurements(rec.measurements, r.measurements);
+    const seen = new Set((rec.flags || []).map(f => f.type + '|' + (f.detail || '')));
+    rec.flags = (rec.flags || []).concat((r.flags || []).filter(f => !seen.has(f.type + '|' + (f.detail || ''))));
+    const sec = Object.assign({}, rec.sections || {});
+    Object.entries(r.sections || {}).forEach(([k, v]) => { v = String(v || '').trim(); if (v && !String(sec[k] || '').includes(v)) sec[k] = sec[k] ? sec[k] + '；' + v : v; });
+    rec.sections = sec;
+    if (r.fourA && r.fourA.mentioned){
+      const fa = rec.fourA || { mentioned:true };
+      FOUR_A.forEach(x => { const v = r.fourA[x.k]; if (v && v !== '未評估' && !(fa.manual && fa[x.k] && fa[x.k] !== '未評估')) fa[x.k] = v; });
+      fa.mentioned = true; if (r.fourA.reasoning) fa.reasoning = r.fourA.reasoning; rec.fourA = fa;
+    }
+    const tubes = (rec.tubes || []).slice();
+    (r.tubes || []).forEach(t => { const i = tubes.findIndex(o => String(o.type).toLowerCase() === String(t.type).toLowerCase()); if (i >= 0) tubes[i] = t; else tubes.push(t); });
+    rec.tubes = tubes;
+    if (r.ngRisk && r.ngRisk.hasNG && !(rec.ngRisk && rec.ngRisk.manual)) rec.ngRisk = Object.assign({}, r.ngRisk, { triggered: rec.ngRisk ? rec.ngRisk.triggered : false });
+    if (Array.isArray(r.missing)) rec.missing = r.missing.slice(0, 5);
+    rec.editLog = (rec.editLog || []).concat([{ at: seg.createdAt, by: cfg.author || '', kind:'補充口述', segId: seg.id, durationSec: seg.durationSec, prev: before.narrative, after: merged }]);
+    rec.updatedAt = new Date().toISOString(); rec.synced = false;
+    triggerAssessments(rec);
+    if (gcsOf({ measurements: r.measurements || [] })) await gcsCheck(rec);
+    if (spo2Of({ measurements: r.measurements || [] })) await spo2Check(rec);
+    { const v = verifyRecord(rec); rec.verify = { numMissing:v.numMissing, claimMissing:v.claimMissing, tpl:v.tpl, omitted:v.omitted, ok:v.ok }; }
+    await DB.put(rec);
+    if (currentRec && currentRec.id === rec.id) showResult(rec);
+    setState('idle');
+    toast('已整合補充內容，請核對');
+    syncRecord(seg).then(() => syncRecord(rec)).then(() => { if (currentRec === rec) showResult(rec); });
+    return true;
+  } catch(e){
+    seg.status = 'ai_failed'; seg.error = e.message; await DB.put(seg);
+    setState('idle');
+    toast('補充整合失敗：' + e.message + '（補充錄音已保存，可再按一次「補充口述」重說）', 7000);
+    return false;
+  }
 }
 
 async function runAI(rec){
@@ -1146,11 +1255,10 @@ async function runAI(rec){
     r = await applyUnitsAndFlags(r);
     const fa = r.fourA && r.fourA.mentioned ? r.fourA : null;
     const ng = r.ngRisk && r.ngRisk.hasNG ? r.ngRisk : null;
-    const faRaw = fa || (r.fourA ? Object.assign({}, r.fourA, { mentioned:false }) : null);
     Object.assign(rec, {
       transcript: r.transcript || '', narrative: r.narrative || '', narrativeAI: r.narrative || '', editLog: [], edited:false,
       measurements: r.measurements || [], sections: r.sections || {}, flags: r.flags || [],
-      fourA: faRaw, tubes: Array.isArray(r.tubes) ? r.tubes : [], ngRisk: ng,
+      fourA: fa, tubes: Array.isArray(r.tubes) ? r.tubes : [], ngRisk: ng,
       missing: Array.isArray(r.missing) ? r.missing.slice(0,5) : [],
       model, status:'done', updatedAt: new Date().toISOString()
     });
@@ -1324,7 +1432,7 @@ function verifyRecord(rec){
   const res = { marks:[], numMissing:[], claimMissing:[], tpl:[], omitted:[], ok:true, hasTranscript: !!trans };
   if (!text || !trans) return res;
   const brs = bracketRanges(text);
-  const skip = new Set([String(rec.bed || ''), String(rec.age || '')].filter(Boolean));
+  const skip = new Set([String(rec.bed || ''), String(rec.bed || '').replace(/\D/g, ''), String(rec.age || '')].filter(Boolean));
   const halfText = maskTokens(toHalf(text));
   // 1) GCS
   const gcsRe = /E\s*\d\s*V\s*[\dT]\s*M\s*\d/gi; let m;
@@ -1430,10 +1538,19 @@ function diffHtml(a, b){
   return out;
 }
 function editAuditHtml(rec){
-  if (!rec.narrativeAI || rec.narrativeAI === rec.narrative) return '';
-  const log = rec.editLog || [];
+  const all = rec.editLog || [];
+  const segs = all.filter(e => e.kind === '補充口述');
+  const log = all.filter(e => e.kind !== '補充口述');
+  let h = '';
+  if (segs.length){
+    const ls = segs[segs.length - 1];
+    h += `<details class="trans"><summary>🎙️ 補充口述 ${segs.length} 次（最後：${esc(ls.by || '未填紀錄者')}，${fmtTime(ls.at)}），查看補充前後差異</summary>
+      ${segs.map(x => `<div class="hint" style="margin:8px 0 2px">${fmtTime(x.at)} 補充</div><div class="pre diff">${diffHtml(x.prev || '', x.after || '')}</div>`).join('')}
+      <div class="hint"><ins>綠底</ins> 是依補充口述加入的字；<del>刪除線</del> 應只有被取代的【…】，若原本寫好的句子被改到，請直接修正。</div></details>`;
+  }
+  if (!rec.narrativeAI || rec.narrativeAI === rec.narrative) return h;
   const last = log[log.length - 1];
-  return `<details class="trans"><summary>✏️ 已修改 ${log.length} 次${last ? `（最後：${esc(last.by || '未填紀錄者')}，${fmtTime(last.at)}）` : ''}，查看與 AI 原稿的差異</summary>
+  return h + `<details class="trans"><summary>✏️ 已修改 ${log.length || 1} 次${last ? `（最後：${esc(last.by || '未填紀錄者')}，${fmtTime(last.at)}）` : ''}，查看與 AI 原稿的差異</summary>
     <div class="pre diff">${diffHtml(rec.narrativeAI, rec.narrative)}</div>
     <div class="hint"><del>刪除線</del> 是 AI 原稿被刪掉的字，<ins>綠底</ins> 是護理師加上的字。</div></details>`;
 }
@@ -1476,6 +1593,43 @@ function triggerAssessments(rec){
 }
 
 /* ================= 4A、管路畫面 ================= */
+// 評估不通過／中高風險時的處置：只勾「真的有做」的項目，再按「加入紀錄」寫進護理紀錄
+const FOUR_A_MEASURES = [
+  '告知病人及家屬下床需有人協助', '床欄拉起、床降至最低', '叫人鈴置於可及處',
+  '便盆／尿壺置於床旁', '加強預防跌倒衛教', '高跌標示並交班'
+];
+const NG_MEASURES = {
+  low:    ['常規監測', '日常衛教', '例行交班提醒'],
+  medium: ['加強衛教', '專責交班註記', '家屬教育', '手拍拍（約束手套）預防'],
+  high:   ['啟動約束評估', '加強管路固定', '設置警報', '1:1 陪護', '專責交班註記', '家屬教育']
+};
+function measuresHtml(rec, kind, list, done){
+  return `<div class="measures" style="margin-top:8px"><b>處置（請只勾實際有做的）</b>
+    ${list.map(m => `<label class="switch" style="display:flex;margin:4px 0"><input type="checkbox" data-act="measure" data-id="${esc(rec.id)}" data-kind="${kind}" value="${esc(m)}" ${done.includes(m) ? 'checked' : ''}> ${esc(m)}</label>`).join('')}
+    <button class="btn" type="button" data-act="measureToNote" data-id="${esc(rec.id)}" data-kind="${kind}">📝 加入護理紀錄</button></div>`;
+}
+function measureSentence(rec, kind){
+  if (kind === 'fourA'){
+    const fa = rec.fourA, fails = FOUR_A.filter(x => fa[x.k] === '不通過').map(x => x.name);
+    const ms = fa.measures || [];
+    return `4A 評估不通過項目為 ${fails.join('、')}，不建議下床` + (ms.length ? `，已執行：${ms.join('、')}。` : '。');
+  }
+  const ng = rec.ngRisk, sc = ng.scores || {};
+  const total = NG_ITEMS.reduce((a, x) => a + Math.min(Number(sc[x.k]) || 0, x.max), 0);
+  const ms = ng.measures || [];
+  return `NG 自拔風險評估總分 ${total} 分（${ngLevel(total)[0]}）` + (ms.length ? `，已執行：${ms.join('、')}。` : '。');
+}
+function appendToNarrative(rec, sentence){
+  if (rec.narrativeAI === undefined) rec.narrativeAI = rec.narrative || '';
+  const base = (rec.narrative || '').replace(/\s+$/, '');
+  rec.narrative = base + (base ? '\n' : '') + sentence;
+  rec.edited = rec.narrativeAI !== rec.narrative; rec.updatedAt = new Date().toISOString();
+  rec.editLog = (rec.editLog || []).concat([{ at: rec.updatedAt, by: cfg.author || '' }]);
+  $$(`textarea[data-edit="narrative"][data-id="${rec.id}"]`).forEach(el => el.value = rec.narrative);
+  $$(`[data-verify="${rec.id}"]`).forEach(el => el.innerHTML = verifyHtml(rec));
+  $$(`[data-audit="${rec.id}"]`).forEach(el => el.innerHTML = editAuditHtml(rec));
+}
+
 function fourAResult(fa){
   const vals = FOUR_A.map(x => fa[x.k] || '未評估');
   if (vals.includes('不通過')) return { cls:'alert', text:'有項目不通過 → 不建議下床' };
@@ -1490,6 +1644,7 @@ function fourAHtml(rec){
     ${fa.triggerReason ? `<div class="compare">📌 ${esc(fa.triggerReason)}，請到床邊完成 4A 評估後點選結果</div>` : ''}
     ${FOUR_A.map(x => `<div class="fa-row"><div><b>${x.name}</b><div class="hint" style="margin:0">${esc(x.ex)}</div></div>
       <div class="seg">${['通過','不通過','未評估'].map(v => `<button type="button" class="${(fa[x.k] || '未評估') === v ? 'on ' + (v === '通過' ? 'ok' : v === '不通過' ? 'bad' : '') : ''}" data-act="fa" data-id="${esc(rec.id)}" data-k="${x.k}" data-v="${v}">${v}</button>`).join('')}</div></div>`).join('')}
+    ${r.cls === 'alert' ? measuresHtml(rec, 'fourA', FOUR_A_MEASURES, fa.measures || []) : ''}
     ${fa.reasoning ? `<div class="hint">AI 判斷依據：${esc(fa.reasoning)}（請核對，可直接點選修改）</div>` : ''}
     <div class="hint">適用：失智、無家屬陪伴、高齡、多次跌倒史或高危險跌倒病人執意下床時，任一項不通過就不建議下床。</div></div>`;
 }
@@ -1510,7 +1665,8 @@ function tubesHtml(rec){
       ${NG_ITEMS.map(x => { const v = Math.min(Number(sc[x.k]) || 0, x.max); return `<div class="fa-row"><div><b>${esc(x.name)}</b></div>
         <div class="seg">${Array.from({ length: x.max + 1 }, (_, i) => `<button type="button" class="${v === i ? 'on' + (i ? ' bad' : ' ok') : ''}" data-act="ng" data-id="${esc(rec.id)}" data-k="${x.k}" data-v="${i}">${i}</button>`).join('')}</div></div>`; }).join('')}
       ${ng.reasoning ? `<div class="hint">AI 判斷依據：${esc(ng.reasoning)}。資訊不足的項目以 0 分計，請核對，可直接點選修改。</div>` : '<div class="hint">未點選的項目以 0 分計。</div>'}
-      <div class="hint">0–3 低風險、4–6 中風險、7 分以上高風險。</div></details>`;
+      ${total >= 4 ? measuresHtml(rec, 'ng', NG_MEASURES[total >= 7 ? 'high' : 'medium'], ng.measures || []) : ''}
+      <div class="hint">0–3 低風險（常規監測、日常衛教、例行交班提醒）、4–6 中風險、7 分以上高風險。</div></details>`;
   }
   return h + '</div>';
 }
@@ -1817,6 +1973,7 @@ function recordBodyHtml(rec, opts){
     if ((rec.measurements || []).length) h += `<h2 style="margin:16px 0 8px">數值與單位</h2>` + measurementTable(rec.measurements);
   } else if (rec.status !== 'ai_failed'){
     h += `<label class="f"><span>護理紀錄（可修改，修改會留下紀錄）</span><textarea class="note" data-edit="narrative" data-id="${esc(rec.id)}">${esc(rec.narrative)}</textarea></label>`;
+    if (rec.status === 'done') h += `<div class="row" style="margin:6px 0"><button class="btn" type="button" data-act="supplement" data-id="${esc(rec.id)}">🎙️ 補充口述</button><span class="hint" style="margin:0">到床邊評估後補說，會整合進這一筆，不另開新紀錄</span></div>`;
     h += `<div data-audit="${esc(rec.id)}">${editAuditHtml(rec)}</div>`;
     h += `<h2 style="margin:16px 0 8px">🔍 逐字稿比對</h2><div data-verify="${esc(rec.id)}">${verifyHtml(rec)}</div>`;
     h += fourAHtml(rec) + tubesHtml(rec);
@@ -1828,6 +1985,9 @@ function recordBodyHtml(rec, opts){
   const au = opts.audioUrl || audioUrlFor(rec);
   h += `<details class="trans" open><summary>錄音（${fmtDur(rec.durationSec)}）</summary>`;
   h += au ? `<audio controls preload="none" src="${esc(au)}" style="width:100%;margin:8px 0"></audio>` : (rec.audioFileId ? `<div class="row" style="margin:8px 0"><button class="btn" type="button" data-act="loadAudio" data-id="${esc(rec.id)}" data-file="${esc(rec.audioFileId)}" data-mime="${esc(rec.audioMime || '')}">▶️ 載入雲端錄音</button></div>` : '<div class="hint">此紀錄沒有錄音檔</div>');
+  segsOf(rec).forEach((x, i) => {
+    h += `<div class="row" style="margin:4px 0"><span class="hint" style="margin:0">補充 ${i + 1}（${fmtTime(x.at)}，${fmtDur(x.durationSec || 0)}）</span><button class="btn" type="button" data-act="loadSeg" data-id="${esc(rec.id)}" data-seg="${esc(x.segId)}">▶️ 播放</button></div>`;
+  });
   h += rec.status === 'ai_failed' ? `<div class="pre">${esc(rec.liveCaption || '（尚無逐字稿）')}</div></details>` : '</details>';
   h += `<div class="row" style="margin-top:14px">
     <button class="btn primary" type="button" data-act="copyNote" data-id="${esc(rec.id)}">📋 複製紀錄</button>
@@ -1850,7 +2010,7 @@ async function previousRecord(rec){
   const prev = all.filter(r => r.id !== rec.id && r.status === 'done' && r.template !== 'kardex' && new Date(r.createdAt) < new Date(rec.createdAt));
   let p = prev[0] || null;
   if (!p && cloudReady()){
-    try { const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn, limit: 3 } }); p = (r.records || []).find(x => x.id !== rec.id && x.template !== 'kardex') || null; } catch(e){}
+    try { const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn, limit: 3 } }); p = (r.records || []).find(x => x.id !== rec.id && x.template !== 'kardex' && x.template !== 'supplement') || null; } catch(e){}
   }
   return p;
 }
@@ -1871,6 +2031,7 @@ async function listLocal(filter){
   filter = filter || {};
   let all = await DB.all();
   all = all.filter(r => {
+    if (r.template === 'supplement') return false;  // 補充錄音段落不單獨列出
     if (filter.mrn && r.mrn !== filter.mrn) return false;
     if (filter.bed && r.bed !== filter.bed) return false;
     if (filter.from && r.createdAt.slice(0,10) < filter.from) return false;
@@ -1896,7 +2057,7 @@ async function listRecordsRaw(filter){
   if (!cloudReady()) return { records: local, source:'本機' };
   try {
     const r = await gasCall({ action:'list', filter });
-    const cloud = r.records || [];
+    const cloud = (r.records || []).filter(x => x.template !== 'supplement');
     const byId = new Map(cloud.map(x => [x.id, Object.assign(x, { _cloud:true })]));
     local.forEach(l => { if (byId.has(l.id)) { const c = byId.get(l.id); c.audioBlob = l.audioBlob; c.synced = true; } else byId.set(l.id, l); });
     return { records: Array.from(byId.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), source:'雲端＋本機' };
@@ -2084,7 +2245,33 @@ document.addEventListener('click', async ev => {
       if (!rec) break;
       if (!rec.audioBlob){ const full = await DB.get(rec.id); if (full && full.audioBlob) rec.audioBlob = full.audioBlob; }
       if (!rec.audioBlob && !rec.sourceText){ toast('這台裝置沒有這筆錄音，無法重新產出'); break; }
-      closeAllModals(); switchView('record'); currentRec = rec; showResult(rec); runAI(rec); break;
+      closeAllModals(); switchView('record'); currentRec = rec; showResult(rec);
+      { const segs = segsOf(rec);
+        if (segs.length && !confirm(`這筆有 ${segs.length} 段補充口述，重新產出後會依序重新整合（需要這台裝置有補充錄音）。繼續嗎？`)) { break; }
+        await runAI(rec);
+        for (const x of segs){ if (rec.status !== 'done') break; const sg = await DB.get(x.segId); if (sg && sg.audioBlob) await runSupplement(rec, sg); else toast('這台裝置沒有補充錄音，略過一段'); }
+      }
+      break;
+    case 'supplement':
+      if (!rec) break;
+      closeAllModals(); switchView('record');
+      startSupplement(rec); break;
+    case 'loadSeg': {
+      const segId = t.dataset.seg;
+      let sg = await DB.get(segId);
+      let blob = sg && sg.audioBlob;
+      t.disabled = true; t.textContent = '載入中…';
+      try {
+        if (!blob){
+          if (!sg || !sg.audioFileId){ const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn } }); sg = (r.records || []).find(x => x.id === segId) || sg; }
+          if (!sg || !sg.audioFileId) throw new Error('找不到補充錄音（可能尚未上傳）');
+          const r = await gasCall({ action:'getAudio', fileId: sg.audioFileId });
+          blob = base64ToBlob(r.base64, r.mime || sg.audioMime);
+        }
+        const a = document.createElement('audio'); a.controls = true; a.src = URL.createObjectURL(blob); a.style.width = '100%'; t.replaceWith(a); a.play().catch(() => {});
+      } catch(e){ t.disabled = false; t.textContent = '▶️ 播放'; toast('載入失敗：' + e.message); }
+      break;
+    }
     case 'resolve': resolveFlag(id, t.dataset.flag); break;
     case 'gcsAck': {
       if (!rec) break;
@@ -2116,6 +2303,23 @@ document.addEventListener('click', async ev => {
       if (await DB.get(rec.id)) await DB.put(rec);
       { const panel = t.closest('.panel'); if (panel) panel.outerHTML = fourAHtml(rec); }
       syncRecord(rec); break;
+    case 'measure': {
+      if (!rec) break;
+      const obj = t.dataset.kind === 'fourA' ? rec.fourA : rec.ngRisk; if (!obj) break;
+      const set = new Set(obj.measures || []);
+      if (t.checked) set.add(t.value); else set.delete(t.value);
+      obj.measures = [...set]; rec.updatedAt = new Date().toISOString(); rec.synced = false;
+      if (await DB.get(rec.id)) await DB.put(rec);
+      syncRecord(rec); return;
+    }
+    case 'measureToNote': {
+      if (!rec) break;
+      const obj = t.dataset.kind === 'fourA' ? rec.fourA : rec.ngRisk; if (!obj) break;
+      if (!(obj.measures || []).length && !confirm('還沒勾任何處置，仍要只寫入評估結果嗎？')) break;
+      appendToNarrative(rec, measureSentence(rec, t.dataset.kind));
+      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec);
+      syncRecord(rec); toast('已加入護理紀錄，請再核對文字'); break;
+    }
     case 'ng':
       if (!rec || !rec.ngRisk) break;
       rec.ngRisk.scores = rec.ngRisk.scores || {};
