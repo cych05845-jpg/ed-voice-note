@@ -155,6 +155,9 @@ table.kardex td{white-space:pre-wrap;min-width:90px;font-size:14px}
 table.kardex td:first-child{min-width:110px}
 table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);background:var(--info-bg)}
 .mini{border:none;background:none;cursor:pointer;font-size:13px;padding:0 2px}
+.gcs-alert{border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:15px;border:2px solid}
+.gcs-alert.alert{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.gcs-alert.caution{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
 .banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:14px;font-size:14px}
 </style>
 </head>
@@ -180,9 +183,14 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
     <div class="card">
       <h2>病人資料</h2>
       <div class="grid">
-        <label class="f req"><span>病歷號</span><input type="text" id="mrn" inputmode="numeric" autocomplete="off" placeholder="必填（只存本機與雲端，不送 AI）"></label>
         <label class="f req"><span>床號</span><input type="text" id="bed" autocomplete="off" placeholder="必填，例：106"></label>
+        <label class="f"><span>病歷號（刷手圈或輸入，只保留末四碼）</span>
+          <span class="row" style="flex-wrap:nowrap"><input type="text" id="mrnIn" class="grow" inputmode="numeric" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="建議刷入，按 Enter">
+          <button class="btn hidden" type="button" id="btnScan" title="用相機掃描手圈條碼">📷</button></span></label>
       </div>
+      <div class="row" style="margin-top:6px"><span id="last4Chip"></span>
+        <label class="switch" id="newPatientWrap"><input type="checkbox" id="newPatient"> 🆕 此床新病人（沒刷病歷號、床位換人時勾選）</label></div>
+      <div class="hint" style="margin-top:4px">完整病歷號不會保存、不會上傳、也不會送給 AI。系統用「床號＋末四碼」辨識同一位病人；沒刷時改用「床號＋第一筆紀錄時間」。</div>
       <div class="grid" style="margin-top:10px">
         <label class="f"><span>年齡（選填）</span><input type="text" id="age" inputmode="numeric" autocomplete="off" placeholder="例：78"></label>
         <label class="f"><span>主要問題／診斷（選填）</span><input type="text" id="problem" autocomplete="off" placeholder="例：UTI、腹痛"></label>
@@ -192,7 +200,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
         <button type="button" data-mode="治療區">🚑 治療區紀錄</button>
         <button type="button" data-mode="kardex">📊 交班單 Kardex</button>
       </div>
-      <div class="hint hidden" id="kardexHint">Kardex 只記關鍵醫囑與 data：事件（為什麼）→ 處理（下了什麼醫囑）→ 追蹤（執行後的 data）。同一病歷號第一次會寫完整背景，之後只寫新變化。</div>
+      <div class="hint hidden" id="kardexHint">Kardex 只記關鍵醫囑與 data：事件（為什麼）→ 處理（下了什麼醫囑）→ 追蹤（執行後的 data）。同一床同一位病人第一次會寫完整背景，之後只寫新變化。</div>
       <div class="grid" style="margin-top:10px">
         <label class="f" id="tplWrap"><span>紀錄類型</span><select id="template"></select></label>
         <label class="f"><span>評估提醒（選填）</span><select id="dx"><option value="">不使用</option></select></label>
@@ -207,7 +215,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
 
     <div class="card rec-card">
       <button class="mic" id="mic" type="button" aria-label="開始或結束錄音">🎤</button>
-      <div class="state" id="stateText">填好病歷號與床號後，說「開始」或按麥克風</div>
+      <div class="state" id="stateText">填好床號後，說「開始」或按麥克風</div>
       <div class="timer" id="timer">00:00</div>
       <div class="cmdline"><span class="dot" id="cmdDot"></span><span id="cmdText">語音指令未啟動</span></div>
       <div style="margin-top:8px"><label class="switch"><input type="checkbox" id="cmdToggle"> 語音指令（說「開始」開錄，說「結束」完成）</label></div>
@@ -228,8 +236,8 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
     <div class="card">
       <h2>查詢紀錄、逐字稿與錄音</h2>
       <div class="grid">
-        <label class="f"><span>病歷號</span><input type="text" id="qMrn" autocomplete="off"></label>
         <label class="f"><span>床號</span><input type="text" id="qBed" autocomplete="off"></label>
+        <label class="f"><span>病歷號末四碼</span><input type="text" id="qLast4" inputmode="numeric" maxlength="4" autocomplete="off"></label>
       </div>
       <label class="f" style="margin-top:10px"><span>關鍵字（搜尋紀錄與逐字稿）</span><input type="text" id="qKw" placeholder="例：發燒、Foley、Na"></label>
       <div class="grid" style="margin-top:10px">
@@ -260,7 +268,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
         <label class="switch"><input type="checkbox" id="tAll"> 含已解除</label>
         <button class="btn" type="button" id="btnTrack">重新整理</button>
       </div>
-      <div class="hint">同一病歷號的異常會串在一起，並列出生命徵象變化，方便接續追蹤。</div>
+      <div class="hint">同一床同一位病人的異常會串在一起，並列出生命徵象變化，方便接續追蹤。</div>
     </div>
     <div id="tResults"></div>
   </section>
@@ -333,6 +341,14 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
   <div class="box">
     <h3><span id="detailTitle">紀錄</span><button class="x" type="button" data-close>×</button></h3>
     <div id="detailBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="scanModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>📷 掃描手圈條碼 <button class="x" type="button" id="btnScanClose">×</button></h3>
+    <video id="scanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000"></video>
+    <div class="hint">把手圈條碼對準畫面，讀到後會自動關閉，只保留末四碼。</div>
   </div>
 </div>
 
@@ -683,12 +699,8 @@ const UNIT_DB = [
   { keys:['血壓','bp','nbp','abp','血壓nbp'], name:'血壓', unit:'mmHg', cat:'生命徵象',
     rule:v => { const m = String(v).match(/(\d+)\s*\/\s*(\d+)/); if (!m) return; const s = +m[1];
       if (s < 90) return ['低血壓','alert',`BP ${m[1]}/${m[2]}`]; if (s >= 180) return ['血壓過高','caution',`BP ${m[1]}/${m[2]}`]; } },
-  { keys:['spo2','血氧','o2sat','sao2','血氧濃度','氧氣飽和度'], name:'SpO2', unit:'%', cat:'生命徵象',
-    rule:v => { const x = num(v); if (x < 90) return ['血氧下降','alert',`SpO2 ${x}%`]; if (x < 94) return ['血氧下降','caution',`SpO2 ${x}%`]; } },
-  { keys:['gcs','昏迷指數'], name:'GCS', unit:'', noUnit:true, cat:'評估量表',
-    rule:v => { const m = String(v).match(/E\s*(\d)\s*V\s*(\w)\s*M\s*(\d)/i); let tot = NaN;
-      if (m){ const vv = /^\d$/.test(m[2]) ? +m[2] : 1; tot = +m[1] + vv + +m[3]; } else tot = num(v);
-      if (tot < 15 && tot >= 3) return ['意識改變', tot <= 8 ? 'alert' : 'caution', `GCS ${v}`]; } },
+  { keys:['spo2','血氧','o2sat','sao2','血氧濃度','氧氣飽和度'], name:'SpO2', unit:'%', cat:'生命徵象' }, // 變化提醒見 spo2Check
+  { keys:['gcs','昏迷指數'], name:'GCS', unit:'', noUnit:true, cat:'評估量表' }, // 變化提醒見 gcsCheck
   { keys:['nrs','疼痛','疼痛指數','疼痛分數','pain','vas'], name:'疼痛 NRS', unit:'分', cat:'評估量表',
     rule:v => { const x = num(v); if (x >= 7) return ['劇烈疼痛','caution',`NRS ${x} 分`]; } },
   { keys:['血糖','bs','glucose','glu','ac','pc','onetouch','手指血糖'], name:'血糖', unit:'mg/dL', cat:'檢驗',
@@ -876,7 +888,7 @@ function buildPrompt(rec, prevFlags, prev){
 床號：${rec.bed}
 年齡：${rec.age || '【未填】'}
 主要問題/診斷：${rec.problem || (dx ? dx.title : '【未填】')}
-（病歷號由系統另外保存，輸出中不可出現任何病歷號、身分證字號或病人全名。）
+（輸出中不可出現任何病歷號、身分證字號或病人全名。）
 
 【本次紀錄類型】${t.group}－${t.label}
 【範本要點】${t.hint}
@@ -922,15 +934,126 @@ function setState(s, text){
   updateCmdStatus();
 }
 
-function validatePatient(){
-  const mrn = $('#mrn'), bed = $('#bed');
-  mrn.classList.toggle('missing', !mrn.value.trim());
-  bed.classList.toggle('missing', !bed.value.trim());
-  if (!mrn.value.trim() || !bed.value.trim()){
-    toast('請先輸入病歷號與床號');
-    (mrn.value.trim() ? bed : mrn).focus();
-    return false;
+/* 病人代號（欄位名稱沿用 mrn 以相容雲端試算表；完整病歷號一律不保存）
+   格式：床號@開始時間[#病歷號末四碼]，例：106@20261001143012#1234 */
+const CASE_DAYS = 7, TRANSFER_HOURS = 48;
+let last4 = '';                 // 只保留末四碼
+let caseState = { bed:'', last4:'', key:null, transferFrom:null, offer:null };
+function parseCase(key){
+  const m = String(key || '').match(/^(.+?)@(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:#(\d{1,4}))?$/);
+  return m ? { bed:m[1], start:`${+m[3]}/${+m[4]} ${m[5]}:${m[6]}`, last4:m[8] || '' } : null;
+}
+function caseLabel(key, bed){
+  const c = parseCase(key);
+  if (!c) return String(key || '');
+  return `${bed || c.bed} 床（${c.last4 ? '末四碼 ' + c.last4 + '，' : ''}${c.start} 起）`;
+}
+function newCaseKey(bed, l4){ const d = new Date(); return `${bed}@${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}` + (l4 ? '#' + l4 : ''); }
+async function recentRecords(hours){
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const { records } = await listRecords({ since, from: since.slice(0, 10) });
+  return records.filter(r => r.mrn).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+// 依床號與末四碼找出這位病人目前的代號；可能附帶「轉床」候選
+async function findCase(bed, l4){
+  if (!bed) return { key:null };
+  const recent = await recentRecords(CASE_DAYS * 24);
+  if (l4){
+    const same = recent.find(r => r.bed === bed && parseCase(r.mrn) && parseCase(r.mrn).last4 === l4);
+    if (same) return { key: same.mrn };
+    const limit = Date.now() - TRANSFER_HOURS * 3600000;
+    const other = recent.find(r => r.bed !== bed && parseCase(r.mrn) && parseCase(r.mrn).last4 === l4 && new Date(r.createdAt).getTime() >= limit);
+    return { key:null, offer: other ? { key: other.mrn, bed: other.bed, at: other.createdAt } : null };
   }
+  const sameBed = recent.find(r => r.bed === bed && parseCase(r.mrn) && !parseCase(r.mrn).last4);
+  return { key: sameBed ? sameBed.mrn : null };
+}
+async function resolveCaseKey(bed){
+  const forceNew = !last4 && $('#newPatient').checked;
+  if (forceNew) return newCaseKey(bed, '');
+  if (caseState.bed === bed && caseState.last4 === last4 && caseState.key) return caseState.key;
+  const f = await findCase(bed, last4);
+  return f.key || newCaseKey(bed, last4);
+}
+// 刷入或輸入病歷號：立刻只留末四碼，完整號碼不保存
+function takeMrn(raw){
+  const digits = String(raw || '').replace(/\D/g, '');
+  const box = $('#mrnIn'); box.value = '';
+  if (digits.length < 4){ if (raw) toast('病歷號格式不對，請重新刷入'); return; }
+  last4 = digits.slice(-4);
+  renderLast4(); showPrevious();
+}
+function clearLast4(){ last4 = ''; renderLast4(); showPrevious(); }
+function renderLast4(){
+  $('#last4Chip').innerHTML = last4 ? `<span class="chip info">病歷號末四碼 ${esc(last4)} <button type="button" class="mini" id="btnClear4" title="清除">✕</button></span>` : '';
+  $('#newPatientWrap').classList.toggle('hidden', !!last4);
+  if ($('#btnClear4')) $('#btnClear4').onclick = clearLast4;
+}
+// 相機掃描手圈條碼（Chrome／Android 支援；不支援的裝置會隱藏按鈕）
+let scanStream = null, scanTimer = null;
+async function startScan(){
+  if (!('BarcodeDetector' in window)){ toast('這個瀏覽器不支援相機掃描，請手動輸入'); return; }
+  let det;
+  try { det = new BarcodeDetector({ formats:['code_128','code_39','code_93','codabar','itf','ean_13','qr_code','data_matrix'] }); }
+  catch(e){ det = new BarcodeDetector(); }
+  try { scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }
+  catch(e){ toast('無法開啟相機：' + e.message); return; }
+  const v = $('#scanVideo'); v.srcObject = scanStream; await v.play().catch(() => {});
+  openModal('#scanModal');
+  scanTimer = setInterval(async () => {
+    try { const codes = await det.detect(v); if (codes && codes.length){ const val = codes[0].rawValue; stopScan(); takeMrn(val); toast('已讀取，只保留末四碼'); } } catch(e){}
+  }, 300);
+}
+function stopScan(){
+  clearInterval(scanTimer); scanTimer = null;
+  if (scanStream) scanStream.getTracks().forEach(t => t.stop()); scanStream = null;
+  $('#scanModal').classList.remove('open');
+}
+async function showPrevious(){
+  const bed = $('#bed').value.trim(); const box = $('#prevBox');
+  caseState = { bed, last4, key:null, offer:null };
+  if (!bed){ box.classList.add('hidden'); return; }
+  if (!last4 && $('#newPatient').checked){ box.innerHTML = `🆕 這筆會以 <b>${esc(bed)} 床新病人</b> 開始，不接續之前的紀錄。`; box.classList.remove('hidden'); return; }
+  const f = await findCase(bed, last4);
+  if ($('#bed').value.trim() !== bed) return; // 輸入已變更
+  caseState.key = f.key; caseState.offer = f.offer || null;
+  if (!f.key){
+    if (f.offer){
+      box.innerHTML = `🔁 末四碼 <b>${esc(last4)}</b> 在 ${fmtTime(f.offer.at)} 有 <b>${esc(f.offer.bed)} 床</b>的紀錄，是同一位病人轉床嗎？
+        <div class="row" style="margin-top:8px"><button class="btn primary" type="button" id="btnTransferYes">是，接續之前的紀錄</button><button class="btn" type="button" id="btnTransferNo">不是，新病人</button></div>`;
+      box.classList.remove('hidden');
+      $('#btnTransferYes').onclick = () => { caseState.key = f.offer.key; caseState.offer = null; toast('已接續轉床前的紀錄'); renderCaseBox(bed, f.offer.key); };
+      $('#btnTransferNo').onclick = () => { caseState.offer = null; box.innerHTML = `🆕 ${esc(bed)} 床新病人（末四碼 ${esc(last4)}）`; };
+      return;
+    }
+    if (last4){ box.innerHTML = `🆕 ${esc(bed)} 床新病人（末四碼 ${esc(last4)}）`; box.classList.remove('hidden'); return; }
+    box.classList.add('hidden'); return;
+  }
+  renderCaseBox(bed, f.key);
+}
+async function renderCaseBox(bed, key){
+  const box = $('#prevBox');
+  const all = await listLocal({ mrn: key });
+  const p = all.find(r => r.status === 'done' && r.template !== 'kardex');
+  const ks = all.filter(r => r.status === 'done' && r.template === 'kardex');
+  const showK = ks.length && currentMode === '留觀' && $('#template').value === 'complete';
+  const kHtml = showK ? `<label class="switch" style="margin-top:8px"><input type="checkbox" id="useKardex" checked> 💡 這位病人已有 ${ks.length} 筆 Kardex，帶入 R 紀錄首筆（診斷、主訴、過敏、管路、高跌）</label>` : '';
+  const hint = last4 ? '' : '<div class="hint" style="margin:2px 0 0">如果這張床已經換人，請勾「此床新病人」，或刷入病歷號。</div>';
+  let h = `<b>接續：${esc(caseLabel(key, bed))}</b>`;
+  if (p){
+    const open = (p.flags || []).filter(f => !f.resolved);
+    const vit = (p.measurements || []).filter(m => m.category === '生命徵象').map(m => `${m.item} ${m.value}${m.unit ? ' ' + m.unit : ''}`).join('、');
+    h += `，前次紀錄 ${fmtTime(p.createdAt)}${vit ? '：' + esc(vit) : ''}` +
+      (open.length ? `<div class="flags" style="margin-top:6px">${open.map(flagChip).join('')}</div><div class="hint">這次錄音若提到相關數值，AI 會一併說明變化。</div>` : '');
+  }
+  box.innerHTML = h + hint + (kHtml ? '<div>' + kHtml + '</div>' : '');
+  box.classList.remove('hidden');
+}
+
+function validatePatient(){
+  const bed = $('#bed');
+  bed.classList.toggle('missing', !bed.value.trim());
+  if (!bed.value.trim()){ toast('請先輸入床號'); bed.focus(); return false; }
   return true;
 }
 
@@ -981,13 +1104,14 @@ async function onRecorderStop(){
   if (blob.size < 2000 || dur < 1.5){ setState('idle'); toast('錄音太短，未儲存'); return; }
   const rec = {
     id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    author: cfg.author || '', mrn: $('#mrn').value.trim(), bed: $('#bed').value.trim(), age: $('#age').value.trim(), problem: $('#problem').value.trim(),
+    author: cfg.author || '', mrn: await resolveCaseKey($('#bed').value.trim()), bed: $('#bed').value.trim(), age: $('#age').value.trim(), problem: $('#problem').value.trim(),
     template: getTemplate(), dx: $('#dx').value, checked: getChecked(), useKardex: !!($('#useKardex') && $('#useKardex').checked),
     durationSec: Math.round(dur), audioBlob: blob, audioMime: blob.type.split(';')[0] || 'audio/webm',
     liveCaption: (liveFinal + liveInterim).trim(), status:'processing', model: currentModel(),
     narrative:'', transcript:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
   };
   await DB.put(rec); // 先把錄音存起來，AI 失敗也不會遺失
+  if ($('#newPatient').checked){ $('#newPatient').checked = false; }
   currentRec = rec;
   showResult(rec);
   await runAI(rec);
@@ -1010,13 +1134,17 @@ async function runAI(rec){
     r = await applyUnitsAndFlags(r);
     const fa = r.fourA && r.fourA.mentioned ? r.fourA : null;
     const ng = r.ngRisk && r.ngRisk.hasNG ? r.ngRisk : null;
+    const faRaw = fa || (r.fourA ? Object.assign({}, r.fourA, { mentioned:false }) : null);
     Object.assign(rec, {
       transcript: r.transcript || '', narrative: r.narrative || '', narrativeAI: r.narrative || '', editLog: [], edited:false,
       measurements: r.measurements || [], sections: r.sections || {}, flags: r.flags || [],
-      fourA: fa, tubes: Array.isArray(r.tubes) ? r.tubes : [], ngRisk: ng,
+      fourA: faRaw, tubes: Array.isArray(r.tubes) ? r.tubes : [], ngRisk: ng,
       missing: Array.isArray(r.missing) ? r.missing.slice(0,5) : [],
       model, status:'done', updatedAt: new Date().toISOString()
     });
+    triggerAssessments(rec);
+    if (rec.fourA && !rec.fourA.mentioned) rec.fourA = null;
+    await gcsCheck(rec); await spo2Check(rec);
     { const v = verifyRecord(rec); rec.verify = { numMissing:v.numMissing, claimMissing:v.claimMissing, tpl:v.tpl, omitted:v.omitted, ok:v.ok }; }
     await DB.put(rec);
     showResult(rec);
@@ -1298,7 +1426,44 @@ function editAuditHtml(rec){
     <div class="hint"><del>刪除線</del> 是 AI 原稿被刪掉的字，<ins>綠底</ins> 是護理師加上的字。</div></details>`;
 }
 
-/* ================= 4A、管路（有提到才跳出） ================= */
+/* ================= 4A、管路（有提到才跳出） =================
+   固定規則（不靠 AI 判斷）：
+   - 口述或紀錄提到鼻胃管 → 跳出鼻胃管自拔風險評估
+   - 年齡 > 65 歲，或提到無力、頭暈等急性虛弱 → 跳出 4A */
+const NG_RE = /鼻胃管|胃管|\bNG\s*(?:tube|管)?\b|\bNGT\b|N\/G/i;
+const WEAK_RE = /無力|乏力|沒力|沒有力氣|軟腳|腳軟|頭暈|頭昏|暈眩|眩暈|暈暈|虛弱|站不穩|步態不穩|走不穩|差點跌倒|跌倒/g;
+function ageOf(rec){
+  const a = parseInt(String(rec.age || '').replace(/[^\d]/g, ''), 10);
+  if (a) return a;
+  const m = String(rec.transcript || '').match(/(\d{2,3})\s*歲/);
+  return m ? +m[1] : 0;
+}
+function triggerAssessments(rec){
+  const text = [rec.transcript, rec.narrative].join('\n');
+  // 鼻胃管
+  const ngTube = (rec.tubes || []).some(t => NG_RE.test(String(t.type || '')));
+  if (ngTube || NG_RE.test(text)){
+    if (!rec.ngRisk) rec.ngRisk = { hasNG:true, scores:{}, reasoning:'' };
+    rec.ngRisk.hasNG = true; rec.ngRisk.triggered = true;
+    rec.ngRisk.scores = rec.ngRisk.scores || {};
+  }
+  // 4A
+  const why = [];
+  const age = ageOf(rec);
+  if (age > 65) why.push(`年齡 ${age} 歲`);
+  // 前面是「無、否認、沒有、未」的不算（例：否認頭暈）
+  const said = rec.transcript || rec.narrative || '';  // 以口述內容為準，避免衛教句（預防跌倒）誤觸
+  const words = [...new Set([...said.matchAll(WEAK_RE)].filter(m => !/(無|否認|沒有|未|不|防|預防)\s*$/.test(said.slice(Math.max(0, m.index - 3), m.index))).map(m => m[0]))];
+  if (words.length) why.push('口述提到「' + words.slice(0, 3).join('、') + '」');
+  if (why.length){
+    const fa = rec.fourA || {};
+    FOUR_A.forEach(x => { if (!fa[x.k]) fa[x.k] = '未評估'; });
+    fa.mentioned = true; fa.triggered = true; fa.triggerReason = why.join('／');
+    rec.fourA = fa;
+  }
+}
+
+/* ================= 4A、管路畫面 ================= */
 function fourAResult(fa){
   const vals = FOUR_A.map(x => fa[x.k] || '未評估');
   if (vals.includes('不通過')) return { cls:'alert', text:'有項目不通過 → 不建議下床' };
@@ -1310,6 +1475,7 @@ function fourAHtml(rec){
   if (!fa || !fa.mentioned) return '';
   const r = fourAResult(fa);
   return `<div class="panel"><div class="panel-h">🦵 4A 肌力與穩定性評估 <span class="chip ${r.cls}">${r.text}</span></div>
+    ${fa.triggerReason ? `<div class="compare">📌 ${esc(fa.triggerReason)}，請到床邊完成 4A 評估後點選結果</div>` : ''}
     ${FOUR_A.map(x => `<div class="fa-row"><div><b>${x.name}</b><div class="hint" style="margin:0">${esc(x.ex)}</div></div>
       <div class="seg">${['通過','不通過','未評估'].map(v => `<button type="button" class="${(fa[x.k] || '未評估') === v ? 'on ' + (v === '通過' ? 'ok' : v === '不通過' ? 'bad' : '') : ''}" data-act="fa" data-id="${esc(rec.id)}" data-k="${x.k}" data-v="${v}">${v}</button>`).join('')}</div></div>`).join('')}
     ${fa.reasoning ? `<div class="hint">AI 判斷依據：${esc(fa.reasoning)}（請核對，可直接點選修改）</div>` : ''}
@@ -1328,8 +1494,10 @@ function tubesHtml(rec){
     const total = NG_ITEMS.reduce((s, x) => s + (Math.min(Number(sc[x.k]) || 0, x.max)), 0);
     const lv = ngLevel(total);
     h += `<details class="trans" open><summary>鼻胃管自拔風險 <span class="chip ${lv[1]}">${total} 分・${lv[0]}</span></summary>
-      <div class="tbl-wrap"><table><tbody>${NG_ITEMS.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${Number(sc[x.k]) || 0}／${x.max}</td></tr>`).join('')}</tbody></table></div>
-      ${ng.reasoning ? `<div class="hint">AI 判斷依據：${esc(ng.reasoning)}。資訊不足的項目以 0 分計，請核對。</div>` : ''}
+      ${ng.triggered && !ng.manual ? `<div class="compare">📌 口述提到鼻胃管，請到床邊核對各項後點選分數</div>` : ''}
+      ${NG_ITEMS.map(x => { const v = Math.min(Number(sc[x.k]) || 0, x.max); return `<div class="fa-row"><div><b>${esc(x.name)}</b></div>
+        <div class="seg">${Array.from({ length: x.max + 1 }, (_, i) => `<button type="button" class="${v === i ? 'on' + (i ? ' bad' : ' ok') : ''}" data-act="ng" data-id="${esc(rec.id)}" data-k="${x.k}" data-v="${i}">${i}</button>`).join('')}</div></div>`; }).join('')}
+      ${ng.reasoning ? `<div class="hint">AI 判斷依據：${esc(ng.reasoning)}。資訊不足的項目以 0 分計，請核對，可直接點選修改。</div>` : '<div class="hint">未點選的項目以 0 分計。</div>'}
       <div class="hint">0–3 低風險、4–6 中風險、7 分以上高風險。</div></details>`;
   }
   return h + '</div>';
@@ -1404,8 +1572,8 @@ async function kardexHistory(mrn, excludeId){
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
 function kardexPriorBlock(prior){
-  if (!prior.length) return '【本病歷號 Kardex 歷史】無';
-  return '【本病歷號 Kardex 歷史】（以下已記錄過，這次不要重複）\n' + prior.map((r, i) =>
+  if (!prior.length) return '【本床本位病人 Kardex 歷史】無';
+  return '【本床本位病人 Kardex 歷史】（以下已記錄過，這次不要重複）\n' + prior.map((r, i) =>
     `--- 第 ${i + 1} 筆（${fmtTime(r.createdAt)}）---\n` + kardexText(kardexEntries(r))).join('\n');
 }
 async function runKardexAI(rec){
@@ -1417,11 +1585,11 @@ async function runKardexAI(rec){
     const parts = [];
     const head = `${KARDEX_RULES}
 
-【個案床號】${rec.bed}（病歷號由系統另外保存，輸出中不可出現病歷號、身分證字號或病人全名）
+【個案床號】${rec.bed}（輸出中不可出現病歷號、身分證字號或病人全名）
 年齡：${rec.age || '【未填】'}　主要問題：${rec.problem || '【未填】'}
 ${kardexPriorBlock(prior)}
 
-【本次判定】${isFirst ? '第一筆：本病歷號沒有 Kardex 歷史，請完整記錄背景、入院醫囑與 data。' : '追加條目：已有 Kardex，請盡量精簡，只寫這次新的事件、醫囑與 data，不要重複歷史內容。'}
+【本次判定】${isFirst ? '第一筆：這位病人沒有 Kardex 歷史，請完整記錄背景、入院醫囑與 data。' : '追加條目：已有 Kardex，請盡量精簡，只寫這次新的事件、醫囑與 data，不要重複歷史內容。'}
 開始時間若口述沒提到，填「${nowStamp()}」。
 `;
     const tail = `
@@ -1453,6 +1621,7 @@ ${kardexPriorBlock(prior)}
       measurements: r.measurements, flags: r.flags, fourA:null, tubes:[], ngRisk:null, missing:[],
       model, status:'done', updatedAt: new Date().toISOString()
     });
+    await gcsCheck(rec); await spo2Check(rec);
     { const v = verifyRecord(rec); rec.verify = { numMissing:v.numMissing, claimMissing:v.claimMissing, tpl:v.tpl, omitted:v.omitted, ok:v.ok }; }
     await DB.put(rec); showResult(rec); setState('idle');
     toast(isFirst ? 'Kardex 第一筆完成' : 'Kardex 追加條目完成');
@@ -1489,6 +1658,102 @@ R:病人因【診斷】入急診，經醫師評估後於留觀XX床待床，由�
 `;
 }
 
+/* ================= GCS 變化提醒（固定規則，不由 AI 判斷） =================
+   與同一位病人前一次有 GCS 的紀錄比較：
+   - 總分下降 ≥2、或 M（運動）下降 ≥1、或 GCS ≤8 → 警示：請評估是否需立即通知醫師
+   - 總分下降 1 分 → 注意：請再評估並密切觀察
+   - 第一次紀錄就 <15 → 注意：請確認是否為病人平時狀態
+   - 插管（V 為 T）時只比較 E 與 M
+   門檻為一般臨床參考，請依院內規範調整 */
+const GCS_RULE = { dropAlert: 2, motorDrop: 1, severe: 8 };
+function parseGCS(v){
+  const m = String(v || '').toUpperCase().replace(/\s+/g, '').match(/E([1-4])V([1-5]T?|T)M([1-6])/);
+  if (!m) return null;
+  const vt = /T/.test(m[2]); const vv = vt ? null : +m[2];
+  const e = +m[1], mo = +m[3];
+  return { e, v: vv, m: mo, vt, total: vt ? null : e + vv + mo, text: `E${e}V${m[2]}M${mo}` };
+}
+const gcsShow = g => g.text + (g.total ? `（${g.total} 分）` : '（插管）');
+function gcsOf(rec){
+  const g = (rec.measurements || []).find(x => { const en = findUnitEntry(x.item); return en && en.name === 'GCS'; });
+  return g ? parseGCS(g.value) : null;
+}
+async function gcsCheck(rec){
+  const cur = gcsOf(rec);
+  rec.flags = (rec.flags || []).filter(f => f.source !== 'GCS比較');
+  if (!cur) return;
+  const { records } = await listRecords({ mrn: rec.mrn });
+  const prev = records
+    .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
+    .map(r => ({ r, g: gcsOf(r) })).filter(x => x.g)
+    .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
+  let flag = null;
+  const follow = '請評估是否需通知醫師，並一併評估瞳孔、肢體肌力與生命徵象';
+  if (prev){
+    const p = prev.g;
+    const both = (cur.vt || p.vt);
+    const pScore = both ? p.e + p.m : p.total, cScore = both ? cur.e + cur.m : cur.total;
+    const drop = pScore - cScore, mDrop = p.m - cur.m;
+    const base = `GCS 由 ${gcsShow(p)}（${fmtTime(prev.r.createdAt)}）變為 ${gcsShow(cur)}`;
+    if (drop >= GCS_RULE.dropAlert || mDrop >= GCS_RULE.motorDrop || (cur.total && cur.total <= GCS_RULE.severe))
+      flag = { type:'意識變化', severity:'alert', detail:`${base}，${drop > 0 ? '下降 ' + drop + ' 分' : ''}${mDrop >= 1 ? (drop > 0 ? '，' : '') + 'M 下降 ' + mDrop : ''}${cur.total && cur.total <= GCS_RULE.severe ? '（≤8）' : ''}`, followUp: follow };
+    else if (drop === 1)
+      flag = { type:'意識變化', severity:'caution', detail:`${base}，下降 1 分`, followUp:'請再評估並密切觀察，持續下降時通知醫師' };
+    else if (drop <= -2)
+      rec.gcsNote = `${base}，進步 ${-drop} 分`;
+  } else if (cur.total && cur.total <= GCS_RULE.severe){
+    flag = { type:'意識變化', severity:'alert', detail:`GCS ${gcsShow(cur)}（≤8）`, followUp: follow + '；注意呼吸道' };
+  } else if (cur.total && cur.total < 15){
+    flag = { type:'意識狀態', severity:'caution', detail:`首次紀錄 GCS ${gcsShow(cur)}`, followUp:'請確認是否為病人平時狀態，作為之後比較的基準' };
+  }
+  if (flag) rec.flags = rec.flags.filter(x => !/意識/.test(x.type || ''));
+  if (flag) rec.flags.unshift(Object.assign({ id: uid(), source:'GCS比較', resolved:false, ack:null }, flag));
+}
+/* SpO2 變化提醒：與同一位病人前一次比較
+   - 低於 90% → 危及：請立即評估並通知醫師
+   - 比前一次下降超過 2 個百分點 → 注意 */
+const SPO2_RULE = { danger: 90, drop: 2 };
+function spo2Of(rec){
+  const m = (rec.measurements || []).find(x => { const en = findUnitEntry(x.item); return en && en.name === 'SpO2'; });
+  const v = m ? num(m.value) : NaN;
+  return isNaN(v) ? null : { v, note: m.note || '' };
+}
+async function spo2Check(rec){
+  const cur = spo2Of(rec);
+  rec.flags = (rec.flags || []).filter(f => f.source !== 'SpO2比較');
+  if (!cur) return;
+  rec.flags = rec.flags.filter(f => !/血氧|SpO2|SPO2/i.test(f.type || ''));   // 以固定規則為準
+  const { records } = await listRecords({ mrn: rec.mrn });
+  const prev = records
+    .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
+    .map(r => ({ r, s: spo2Of(r) })).filter(x => x.s)
+    .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
+  const from = prev ? `由 ${prev.s.v}%（${fmtTime(prev.r.createdAt)}）` : '';
+  const drop = prev ? +(prev.s.v - cur.v).toFixed(1) : 0;
+  let flag = null;
+  if (cur.v < SPO2_RULE.danger)
+    flag = { type:'血氧危及', severity:'alert', detail:`SpO2 ${from ? from + '降至 ' : ''}${cur.v}%（<${SPO2_RULE.danger}%）`, followUp:'危及：請立即評估呼吸狀態、給氧情形並通知醫師' };
+  else if (prev && drop > SPO2_RULE.drop)
+    flag = { type:'血氧下降', severity:'caution', detail:`SpO2 ${from}降至 ${cur.v}%（↓${drop}）`, followUp:'請注意：評估呼吸型態、痰液、氧氣使用與姿勢，持續下降時通知醫師' };
+  if (flag) rec.flags.unshift(Object.assign({ id: uid(), source:'SpO2比較', resolved:false, ack:null }, flag));
+}
+function gcsBannerHtml(rec){
+  let h = '';
+  (rec.flags || []).filter(x => x.source === 'GCS比較' || x.source === 'SpO2比較').forEach(f => {
+    const ack = f.ack ? `<div class="hint" style="margin:6px 0 0">✅ ${esc(f.ack.v)}（${esc(f.ack.by || '未填紀錄者')}，${fmtTime(f.ack.at)}）</div>` : `
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" type="button" data-act="gcsAck" data-id="${esc(rec.id)}" data-flag="${esc(f.id)}" data-v="已通知醫師">已通知醫師</button>
+        ${f.type === '意識狀態'
+          ? `<button class="btn" type="button" data-act="gcsAck" data-id="${esc(rec.id)}" data-flag="${esc(f.id)}" data-v="確認為病人平時狀態">是病人平時狀態</button>`
+          : `<button class="btn" type="button" data-act="gcsAck" data-id="${esc(rec.id)}" data-flag="${esc(f.id)}" data-v="已再評估，暫不需通知">已再評估，暫不需通知</button>`}
+      </div>`;
+    h += `<div class="gcs-alert ${f.severity === 'alert' ? 'alert' : 'caution'}"><b>${f.severity === 'alert' ? '🚨' : '⚠️'} ${esc(f.type)}：${esc(f.detail)}</b>
+      <div style="margin-top:4px">${esc(f.followUp || '')}</div>${ack}</div>`;
+  });
+  if (rec.gcsNote) h += `<div class="compare">🟢 ${esc(rec.gcsNote)}</div>`;
+  return h;
+}
+
 /* ================= 結果呈現 ================= */
 function flagChip(f){
   const cls = f.resolved ? 'ok' : (f.severity === 'alert' ? 'alert' : 'caution');
@@ -1509,9 +1774,9 @@ function sectionsHtml(sec){
 }
 function recordText(rec){ return (rec.narrative || '').trim(); }
 function structuredText(rec){
-  if (rec.template === 'kardex') return `床號：${rec.bed}　病歷號：${rec.mrn}\n` + kardexText(kardexEntries(rec));
+  if (rec.template === 'kardex') return `床號：${rec.bed}\n` + kardexText(kardexEntries(rec));
   const lines = [];
-  lines.push(`床號：${rec.bed}　病歷號：${rec.mrn}　時間：${fmtTime(rec.createdAt)}`);
+  lines.push(`床號：${rec.bed}　時間：${fmtTime(rec.createdAt)}`);
   (rec.measurements || []).forEach(m => lines.push(`${m.item}：${m.value}${m.unit ? ' ' + m.unit : ''}${m.abnormal ? '（異常）' : ''}`));
   const sec = rec.sections || {};
   Object.keys(SECTION_LABELS).forEach(k => { if (sec[k]) lines.push(`${SECTION_LABELS[k]}：${sec[k]}`); });
@@ -1530,6 +1795,7 @@ function recordBodyHtml(rec, opts){
   if (rec.status === 'ai_failed'){
     h += `<div class="warnbox">AI 整理失敗：${esc(rec.error || '')}。錄音已保存，可按「重新產出」。</div>`;
   }
+  h += `<div data-trend="${esc(rec.id)}">${gcsBannerHtml(rec)}</div>`;
   if ((rec.flags || []).length) h += `<div class="flags" style="margin-bottom:12px">${rec.flags.map(flagChip).join('')}</div>`;
   if (rec.compareHtml) h += rec.compareHtml;
   if (rec.status !== 'ai_failed' && rec.template === 'kardex'){
@@ -1576,24 +1842,6 @@ async function previousRecord(rec){
   }
   return p;
 }
-async function showPrevious(){
-  const mrn = $('#mrn').value.trim(); const box = $('#prevBox');
-  if (!mrn){ box.classList.add('hidden'); return; }
-  const all = await listLocal({ mrn });
-  const p = all.find(r => r.status === 'done' && r.template !== 'kardex');
-  const ks = all.filter(r => r.status === 'done' && r.template === 'kardex');
-  const showK = ks.length && currentMode === '留觀' && $('#template').value === 'complete';
-  const kHtml = showK ? `<label class="switch" style="margin-top:8px"><input type="checkbox" id="useKardex" checked> 💡 此病歷號已有 ${ks.length} 筆 Kardex，帶入 R 紀錄首筆（診斷、主訴、過敏、管路、高跌）</label>` : '';
-  if (!p && !showK){ box.classList.add('hidden'); return; }
-  if (!p){ box.innerHTML = kHtml; box.classList.remove('hidden'); return; }
-  const open = (p.flags || []).filter(f => !f.resolved);
-  const vit = (p.measurements || []).filter(m => m.category === '生命徵象').map(m => `${m.item} ${m.value}${m.unit ? ' ' + m.unit : ''}`).join('、');
-  box.innerHTML = `<b>前次紀錄</b>（${fmtTime(p.createdAt)}，${esc(p.bed)} 床）${vit ? '：' + esc(vit) : ''}` +
-    (open.length ? `<div class="flags" style="margin-top:6px">${open.map(flagChip).join('')}</div><div class="hint">這次錄音若提到相關數值，AI 會一併說明變化。</div>` : '') + (kHtml ? '<div>' + kHtml + '</div>' : '');
-  box.classList.remove('hidden');
-  if (!$('#bed').value.trim() && p.bed) $('#bed').value = p.bed;
-}
-
 /* ================= 評估提醒 ================= */
 function getChecked(){ return $$('#coachList input[type=checkbox]').map((c, i) => c.checked ? i : -1).filter(i => i >= 0); }
 function renderCoach(){
@@ -1627,6 +1875,11 @@ async function listLocal(filter){
   return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 async function listRecords(filter){
+  const r = await listRecordsRaw(filter);
+  if (filter && filter.last4) r.records = r.records.filter(x => (parseCase(x.mrn) || {}).last4 === filter.last4);
+  return r;
+}
+async function listRecordsRaw(filter){
   const local = await listLocal(filter);
   if (!cloudReady()) return { records: local, source:'本機' };
   try {
@@ -1641,7 +1894,7 @@ async function listRecords(filter){
 }
 let lastList = [];
 async function doQuery(){
-  const filter = { mrn: $('#qMrn').value.trim(), bed: $('#qBed').value.trim(), keyword: $('#qKw').value.trim(),
+  const filter = { last4: $('#qLast4').value.replace(/\D/g, '').slice(-4), bed: $('#qBed').value.trim(), keyword: $('#qKw').value.trim(),
     from: $('#qFrom').value, to: $('#qTo').value, flaggedOnly: $('#qFlag').checked };
   $('#qResults').innerHTML = '<div class="empty"><span class="spinner"></span></div>';
   const { records, source } = await listRecords(filter);
@@ -1649,7 +1902,7 @@ async function doQuery(){
   $('#qSource').textContent = `資料來源：${source}，共 ${records.length} 筆`;
   if (!records.length){ $('#qResults').innerHTML = '<div class="empty">沒有符合的紀錄</div>'; return; }
   $('#qResults').innerHTML = records.map(r => `<div class="item" data-open="${esc(r.id)}">
-    <div class="top"><span><b>${esc(r.bed)} 床</b> · 病歷號 ${esc(r.mrn)} · ${esc(templateLabel(r.template))}</span><span>${fmtTime(r.createdAt)} · ${fmtDur(r.durationSec)} ${r._cloud || r.synced ? '☁️' : '💾'}</span></div>
+    <div class="top"><span><b>${esc(caseLabel(r.mrn, r.bed) || r.bed + ' 床')}</b> · ${esc(templateLabel(r.template))}</span><span>${fmtTime(r.createdAt)} · ${fmtDur(r.durationSec)} ${r._cloud || r.synced ? '☁️' : '💾'}</span></div>
     ${(r.flags || []).length ? `<div class="flags" style="margin-top:6px">${r.flags.map(flagChip).join('')}</div>` : ''}
     <div class="snip">${esc(r.narrative || r.transcript || (r.status === 'ai_failed' ? 'AI 整理失敗，錄音已保存' : ''))}</div>
   </div>`).join('');
@@ -1657,7 +1910,7 @@ async function doQuery(){
 async function openDetail(id){
   let rec = lastList.find(r => r.id === id) || await DB.get(id);
   if (!rec) return;
-  $('#detailTitle').textContent = `${rec.bed} 床 · 病歷號 ${rec.mrn} · ${fmtTime(rec.createdAt)}`;
+  $('#detailTitle').textContent = `${caseLabel(rec.mrn, rec.bed) || rec.bed + ' 床'} · ${fmtTime(rec.createdAt)}`;
   $('#detailBody').innerHTML = recordBodyHtml(rec, { openTranscript:true });
   openModal('#detailModal');
 }
@@ -1696,7 +1949,7 @@ async function doTrack(){
       return `<tr><th>${esc(name)}${unit ? ' (' + esc(unit) + ')' : ''}</th>${vals.map(m => m ? `<td class="num" style="${m.abnormal ? 'color:var(--danger)' : ''}">${esc(m.value)}${m.abnormal ? ' ⚠️' : ''}</td>` : '<td>—</td>').join('')}</tr>`;
     }).join('');
     cards.push(`<div class="card">
-      <div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(last.bed)} 床 · 病歷號 ${esc(mrn)}</h2><span class="hint" style="margin:0">${recs.length} 筆紀錄，最新 ${fmtTime(last.createdAt)}</span></div>
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(caseLabel(mrn, last.bed) || last.bed + ' 床')}</h2><span class="hint" style="margin:0">${recs.length} 筆紀錄，最新 ${fmtTime(last.createdAt)}</span></div>
       <div style="margin-top:10px">${flags.map(({ f, r }) => `<div class="row" style="margin:6px 0">${flagChip(f)}<span class="hint" style="margin:0">${fmtTime(r.createdAt)}${f.followUp ? ' · 追蹤：' + esc(f.followUp) : ''}</span><span class="grow"></span>${f.resolved ? '' : `<button class="btn" type="button" data-act="resolve" data-id="${esc(r.id)}" data-flag="${esc(f.id)}">已解除</button>`}</div>`).join('')}</div>
       ${rows ? `<div class="tbl-wrap trend" style="margin-top:10px"><table><thead><tr><th>項目</th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : ''}
     </div>`);
@@ -1724,7 +1977,7 @@ async function refreshTrackBadge(){
 function buildEMRPayload(rec){
   return {
     schema: 'cych-ed-nursing-note/1.0',
-    patient: { mrn: rec.mrn, bed: rec.bed },
+    patient: { bed: rec.bed, caseKey: rec.mrn, mrn: null }, // 未收集病歷號，由病歷系統依床號與時間對應
     encounter: { recordedAt: rec.createdAt, author: rec.author || '', noteType: templateLabel(rec.template) || rec.template },
     note: { text: recordText(rec), sections: rec.template === 'kardex' ? {} : (rec.sections || {}), kardex: rec.template === 'kardex' ? kardexEntries(rec) : null },
     observations: (rec.measurements || []).map(m => ({ category: m.category || '其他', item: m.item, value: m.value, unit: m.unit || '', abnormal: !!m.abnormal })),
@@ -1820,6 +2073,15 @@ document.addEventListener('click', async ev => {
       if (!rec.audioBlob && !rec.sourceText){ toast('這台裝置沒有這筆錄音，無法重新產出'); break; }
       closeAllModals(); switchView('record'); currentRec = rec; showResult(rec); runAI(rec); break;
     case 'resolve': resolveFlag(id, t.dataset.flag); break;
+    case 'gcsAck': {
+      if (!rec) break;
+      const f = (rec.flags || []).find(x => x.id === t.dataset.flag); if (!f) break;
+      f.ack = { v: t.dataset.v, at: new Date().toISOString(), by: cfg.author || '' };
+      rec.updatedAt = f.ack.at; rec.synced = false;
+      if (await DB.get(rec.id)) await DB.put(rec);
+      { const area = t.closest('[data-trend]'); if (area) area.innerHTML = gcsBannerHtml(rec); }
+      syncRecord(rec); toast('已記錄：' + t.dataset.v); break;
+    }
     case 'copyCol': {
       if (!rec) break;
       const vals = kardexEntries(rec).map(e => e[t.dataset.col] || '').filter(Boolean);
@@ -1840,6 +2102,14 @@ document.addEventListener('click', async ev => {
       rec.fourA[t.dataset.k] = t.dataset.v; rec.fourA.manual = true; rec.updatedAt = new Date().toISOString(); rec.synced = false;
       if (await DB.get(rec.id)) await DB.put(rec);
       { const panel = t.closest('.panel'); if (panel) panel.outerHTML = fourAHtml(rec); }
+      syncRecord(rec); break;
+    case 'ng':
+      if (!rec || !rec.ngRisk) break;
+      rec.ngRisk.scores = rec.ngRisk.scores || {};
+      rec.ngRisk.scores[t.dataset.k] = Number(t.dataset.v); rec.ngRisk.manual = true;
+      rec.updatedAt = new Date().toISOString(); rec.synced = false;
+      if (await DB.get(rec.id)) await DB.put(rec);
+      { const panel = t.closest('.panel'); if (panel) panel.outerHTML = tubesHtml(rec); }
       syncRecord(rec); break;
     case 'loadAudio':
       t.disabled = true; t.textContent = '載入中…';
@@ -1914,8 +2184,14 @@ $('#btnTestGas').addEventListener('click', async () => {
 $('#dx').addEventListener('change', renderCoach);
 $('#template').addEventListener('change', () => { LS.set('vnw_last', { mode: currentMode, template: $('#template').value }); showPrevious(); });
 $('#modes').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) setMode(b.dataset.mode); });
-$('#mrn').addEventListener('change', showPrevious);
-$('#mrn').addEventListener('input', e => e.target.classList.remove('missing'));
+$('#bed').addEventListener('change', showPrevious);
+$('#bed').addEventListener('input', () => { if (last4){ last4 = ''; renderLast4(); } });
+$('#mrnIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); takeMrn(e.target.value); } });
+$('#mrnIn').addEventListener('change', e => { if (e.target.value) takeMrn(e.target.value); });
+$('#btnScan').addEventListener('click', startScan);
+$('#btnScanClose').addEventListener('click', stopScan);
+if ('BarcodeDetector' in window) $('#btnScan').classList.remove('hidden');
+$('#newPatient').addEventListener('change', showPrevious);
 $('#bed').addEventListener('input', e => e.target.classList.remove('missing'));
 $('#btnQuery').addEventListener('click', doQuery);
 $('#qKw').addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
