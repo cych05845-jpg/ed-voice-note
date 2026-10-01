@@ -1182,7 +1182,7 @@ async function startSupplement(rec){
 function mergeMeasurements(oldList, newList){
   const key = m => { const en = findUnitEntry(m.item); return en ? en.name : String(m.item || '').trim().toLowerCase(); };
   const out = (oldList || []).slice();
-  (newList || []).forEach(n => { const i = out.findIndex(o => key(o) === key(n)); if (i >= 0) out[i] = n; else out.push(n); });
+  (newList || []).forEach(n => { if (!out.some(o => key(o) === key(n) && String(o.value).trim() === String(n.value).trim())) out.push(n); });
   return out;
 }
 async function runSupplement(rec, seg){
@@ -1842,19 +1842,25 @@ function parseGCS(v){
   return { e, v: vv, m: mo, vt, total: vt ? null : e + vv + mo, text: `E${e}V${m[2]}M${mo}` };
 }
 const gcsShow = g => g.text + (g.total ? `（${g.total} 分）` : '（插管）');
-function gcsOf(rec){
-  const g = (rec.measurements || []).find(x => { const en = findUnitEntry(x.item); return en && en.name === 'GCS'; });
-  return g ? parseGCS(g.value) : null;
-}
+// 同一筆紀錄可能有多次測量（例：15:00、16:00），以最後一次為目前值，並和前一次比較
+function measAll(rec, name){ return (rec.measurements || []).filter(x => { const en = findUnitEntry(x.item); return en && en.name === name; }); }
+function gcsList(rec){ return measAll(rec, 'GCS').map(m => parseGCS(m.value)).filter(Boolean); }
+function gcsOf(rec){ const l = gcsList(rec); return l.length ? l[l.length - 1] : null; }
 async function gcsCheck(rec){
   const cur = gcsOf(rec);
   rec.flags = (rec.flags || []).filter(f => f.source !== 'GCS比較');
   if (!cur) return;
-  const { records } = await listRecords({ mrn: rec.mrn });
-  const prev = records
-    .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
-    .map(r => ({ r, g: gcsOf(r) })).filter(x => x.g)
-    .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
+  let prev = null;
+  const inRec = gcsList(rec);
+  if (inRec.length >= 2) prev = { g: inRec[inRec.length - 2], when: '本筆前一次' };
+  else {
+    const { records } = await listRecords({ mrn: rec.mrn });
+    const p = records
+      .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
+      .map(r => ({ r, g: gcsOf(r) })).filter(x => x.g)
+      .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
+    if (p) prev = { g: p.g, when: fmtTime(p.r.createdAt) };
+  }
   let flag = null;
   const follow = '請評估是否需通知醫師，並一併評估瞳孔、肢體肌力與生命徵象';
   if (prev){
@@ -1862,7 +1868,7 @@ async function gcsCheck(rec){
     const both = (cur.vt || p.vt);
     const pScore = both ? p.e + p.m : p.total, cScore = both ? cur.e + cur.m : cur.total;
     const drop = pScore - cScore, mDrop = p.m - cur.m;
-    const base = `GCS 由 ${gcsShow(p)}（${fmtTime(prev.r.createdAt)}）變為 ${gcsShow(cur)}`;
+    const base = `GCS 由 ${gcsShow(p)}（${prev.when}）變為 ${gcsShow(cur)}`;
     if (drop >= GCS_RULE.dropAlert || mDrop >= GCS_RULE.motorDrop || (cur.total && cur.total <= GCS_RULE.severe))
       flag = { type:'意識變化', severity:'alert', detail:`${base}，${drop > 0 ? '下降 ' + drop + ' 分' : ''}${mDrop >= 1 ? (drop > 0 ? '，' : '') + 'M 下降 ' + mDrop : ''}${cur.total && cur.total <= GCS_RULE.severe ? '（≤8）' : ''}`, followUp: follow };
     else if (drop === 1)
@@ -1881,22 +1887,25 @@ async function gcsCheck(rec){
    - 低於 90% → 危及：請立即評估並通知醫師
    - 比前一次下降超過 2 個百分點 → 注意 */
 const SPO2_RULE = { danger: 90, drop: 2 };
-function spo2Of(rec){
-  const m = (rec.measurements || []).find(x => { const en = findUnitEntry(x.item); return en && en.name === 'SpO2'; });
-  const v = m ? num(m.value) : NaN;
-  return isNaN(v) ? null : { v, note: m.note || '' };
-}
+function spo2List(rec){ return measAll(rec, 'SpO2').map(m => ({ v: num(m.value), note: m.note || '' })).filter(x => !isNaN(x.v)); }
+function spo2Of(rec){ const l = spo2List(rec); return l.length ? l[l.length - 1] : null; }
 async function spo2Check(rec){
   const cur = spo2Of(rec);
   rec.flags = (rec.flags || []).filter(f => f.source !== 'SpO2比較');
   if (!cur) return;
   rec.flags = rec.flags.filter(f => !/血氧|SpO2|SPO2/i.test(f.type || ''));   // 以固定規則為準
-  const { records } = await listRecords({ mrn: rec.mrn });
-  const prev = records
-    .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
-    .map(r => ({ r, s: spo2Of(r) })).filter(x => x.s)
-    .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
-  const from = prev ? `由 ${prev.s.v}%（${fmtTime(prev.r.createdAt)}）` : '';
+  let prev = null;
+  const inRec = spo2List(rec);
+  if (inRec.length >= 2) prev = { s: inRec[inRec.length - 2], when: '本筆前一次' };
+  else {
+    const { records } = await listRecords({ mrn: rec.mrn });
+    const p = records
+      .filter(r => r.id !== rec.id && r.status === 'done' && String(r.createdAt) < String(rec.createdAt))
+      .map(r => ({ r, s: spo2Of(r) })).filter(x => x.s)
+      .sort((a, b) => String(b.r.createdAt).localeCompare(String(a.r.createdAt)))[0];
+    if (p) prev = { s: p.s, when: fmtTime(p.r.createdAt) };
+  }
+  const from = prev ? `由 ${prev.s.v}%（${prev.when}）` : '';
   const drop = prev ? +(prev.s.v - cur.v).toFixed(1) : 0;
   let flag = null;
   if (cur.v < SPO2_RULE.danger)
@@ -2118,7 +2127,7 @@ async function doTrack(){
     // 生命徵象趨勢
     const cols = recs.map(r => fmtTime(r.createdAt));
     const rows = TREND_ITEMS.map(name => {
-      const vals = recs.map(r => { const m = (r.measurements || []).find(x => { const e = findUnitEntry(x.item); return e && e.name === name; }); return m ? m : null; });
+      const vals = recs.map(r => { const l = measAll(r, name); return l.length ? l[l.length - 1] : null; });
       if (!vals.some(Boolean)) return '';
       const unit = (vals.find(Boolean) || {}).unit || '';
       return `<tr><th>${esc(name)}${unit ? ' (' + esc(unit) + ')' : ''}</th>${vals.map(m => m ? `<td class="num" style="${m.abnormal ? 'color:var(--danger)' : ''}">${esc(m.value)}${m.abnormal ? ' ⚠️' : ''}</td>` : '<td>—</td>').join('')}</tr>`;
