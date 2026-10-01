@@ -410,6 +410,18 @@ function currentModel(){ return cfg.model === 'custom' ? (cfg.customModel || 'ge
 function modelPrice(id){ const m = MODELS.find(x => x.id === id); return m ? m.price : [0.75, 3.75]; }
 function aiReady(){ return cfg.mode === 'proxy' ? !!(cfg.gasUrl && cfg.gasToken) : !!cfg.apiKey; }
 function cloudReady(){ return !!(cfg.gasUrl && cfg.gasToken); }
+// 後端已設定統一帳號 Key 時自動改用統一帳號（使用者自己在設定頁選過連線方式就不再自動切換）
+let modeTouched = false;
+async function autoProxy(){
+  if (!cloudReady() || cfg.mode === 'proxy' || cfg.modeManual) return;
+  try {
+    const r = await gasCall({ action:'ping' });
+    if (r && r.proxy && cfg.mode !== 'proxy' && !cfg.modeManual){
+      cfg.mode = 'proxy'; saveCfg(); renderHeader();
+      toast('雲端已設定統一帳號，已自動改用統一帳號 AI', 4000);
+    }
+  } catch(e){}
+}
 
 /* ================= 用量 / 費用 ================= */
 function getUsage(){ const u = LS.get('vnw_usage', {}); const k = monthKey(); if (u.month !== k) return { month:k, calls:0, inTok:0, outTok:0, cost:0, searches:0 }; return u; }
@@ -2018,6 +2030,7 @@ window.NursingNoteAPI = {
 function openModal(sel){ $(sel).classList.add('open'); }
 function closeModal(el){ el.closest('.modal').classList.remove('open'); }
 function openSettings(){
+  modeTouched = false;
   $('#sMode').value = cfg.mode; $('#sKey').value = cfg.apiKey; $('#sModel').value = cfg.model; $('#sCustom').value = cfg.customModel;
   $('#sGas').value = cfg.gasUrl; $('#sToken').value = cfg.gasToken; $('#sAuthor').value = cfg.author; $('#sBudget').value = cfg.budget;
   $('#sStart').value = cfg.startWord; $('#sStop').value = cfg.stopWord; $('#sWeb').checked = cfg.webUnits;
@@ -2026,7 +2039,7 @@ function openSettings(){
   updateSettingsView(); openModal('#settingsModal');
 }
 function readSettings(){
-  cfg.mode = $('#sMode').value; cfg.apiKey = $('#sKey').value.trim(); cfg.model = $('#sModel').value; cfg.customModel = $('#sCustom').value.trim();
+  cfg.mode = $('#sMode').value; if (modeTouched) cfg.modeManual = true; cfg.apiKey = $('#sKey').value.trim(); cfg.model = $('#sModel').value; cfg.customModel = $('#sCustom').value.trim();
   cfg.gasUrl = $('#sGas').value.trim(); cfg.gasToken = $('#sToken').value.trim(); cfg.author = $('#sAuthor').value.trim();
   cfg.budget = parseFloat($('#sBudget').value) || 0; cfg.startWord = $('#sStart').value.trim() || '開始'; cfg.stopWord = $('#sStop').value.trim() || '結束';
   cfg.webUnits = $('#sWeb').checked; cfg.emrUrl = $('#sEmr').value.trim(); cfg.emrToken = $('#sEmrToken').value.trim();
@@ -2163,9 +2176,9 @@ $('#cmdToggle').addEventListener('change', e => {
   setState(state);
 });
 $('#btnSettings').addEventListener('click', openSettings);
-$('#sMode').addEventListener('change', updateSettingsView);
+$('#sMode').addEventListener('change', () => { modeTouched = true; updateSettingsView(); });
 $('#sModel').addEventListener('change', updateSettingsView);
-$('#btnSaveSettings').addEventListener('click', () => { readSettings(); saveCfg(); renderHeader(); closeAllModals(); setState(state); toast('已儲存設定'); });
+$('#btnSaveSettings').addEventListener('click', () => { readSettings(); saveCfg(); renderHeader(); closeAllModals(); setState(state); toast('已儲存設定'); autoProxy(); });
 $('#btnResetUsage').addEventListener('click', () => { LS.set('vnw_usage', {}); updateSettingsView(); renderHeader(); });
 $('#btnTestAI').addEventListener('click', async () => {
   const old = Object.assign({}, cfg); readSettings();
@@ -2177,7 +2190,10 @@ $('#btnTestAI').addEventListener('click', async () => {
 $('#btnTestGas').addEventListener('click', async () => {
   const old = Object.assign({}, cfg); readSettings();
   $('#testGasResult').innerHTML = '<span class="spinner"></span>';
-  try { const r = await gasCall({ action:'ping' }); $('#testGasResult').textContent = '✅ 雲端正常' + (r.proxy ? '，統一帳號 AI 已設定' : '（統一帳號 AI 尚未設定 Key）'); }
+  try { const r = await gasCall({ action:'ping' });
+    let msg = '✅ 雲端正常' + (r.proxy ? '，統一帳號 AI 已設定' : '（統一帳號 AI 尚未設定 Key）');
+    if (r.proxy && $('#sMode').value !== 'proxy' && !modeTouched && !old.modeManual){ $('#sMode').value = 'proxy'; updateSettingsView(); msg += '，已改選統一帳號，按「儲存」生效'; }
+    $('#testGasResult').textContent = msg; }
   catch(e){ $('#testGasResult').textContent = '❌ ' + e.message; }
   cfg = old;
 });
@@ -2208,6 +2224,7 @@ $('#tAll').addEventListener('change', doTrack);
   if (!SR) $('#cmdToggle').disabled = true;
   if (cfg.voiceCmd && SR) startCmd();
   renderHeader(); setState('idle'); refreshTrackBadge();
+  autoProxy();
 })();
 </script>
 </body>
