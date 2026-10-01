@@ -147,6 +147,14 @@ mark.tpl{background:var(--surface-2);border-bottom:1px dashed var(--muted)}
 .seg button.on{background:var(--surface-2);color:var(--text);font-weight:700}
 .seg button.on.ok{background:var(--ok-bg);color:var(--ok)}
 .seg button.on.bad{background:var(--danger-bg);color:var(--danger)}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.modes button{padding:12px 8px;border:2px solid var(--border);background:var(--surface);border-radius:10px;cursor:pointer;font-weight:700;font-size:15px;color:var(--muted)}
+.modes button.on{border-color:var(--primary);background:var(--info-bg);color:var(--primary)}
+@media (max-width:480px){.modes button{font-size:13px;padding:10px 4px}}
+table.kardex td{white-space:pre-wrap;min-width:90px;font-size:14px}
+table.kardex td:first-child{min-width:110px}
+table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);background:var(--info-bg)}
+.mini{border:none;background:none;cursor:pointer;font-size:13px;padding:0 2px}
 .banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:14px;font-size:14px}
 </style>
 </head>
@@ -179,8 +187,14 @@ mark.tpl{background:var(--surface-2);border-bottom:1px dashed var(--muted)}
         <label class="f"><span>年齡（選填）</span><input type="text" id="age" inputmode="numeric" autocomplete="off" placeholder="例：78"></label>
         <label class="f"><span>主要問題／診斷（選填）</span><input type="text" id="problem" autocomplete="off" placeholder="例：UTI、腹痛"></label>
       </div>
+      <div class="modes" id="modes" role="tablist">
+        <button type="button" data-mode="留觀" class="on">🏥 留觀紀錄</button>
+        <button type="button" data-mode="治療區">🚑 治療區紀錄</button>
+        <button type="button" data-mode="kardex">📊 交班單 Kardex</button>
+      </div>
+      <div class="hint hidden" id="kardexHint">Kardex 只記關鍵醫囑與 data：事件（為什麼）→ 處理（下了什麼醫囑）→ 追蹤（執行後的 data）。同一病歷號第一次會寫完整背景，之後只寫新變化。</div>
       <div class="grid" style="margin-top:10px">
-        <label class="f"><span>紀錄類型</span><select id="template"></select></label>
+        <label class="f" id="tplWrap"><span>紀錄類型</span><select id="template"></select></label>
         <label class="f"><span>評估提醒（選填）</span><select id="dx"><option value="">不使用</option></select></label>
       </div>
       <div id="prevBox" class="compare hidden" style="margin-top:12px"></div>
@@ -621,7 +635,22 @@ R:病人/家屬要求【內容】，因【原因】，故【執行/拒絕並解�
 結構：事件描述 → 立即處置 → 通報 → 後續觀察
 R:病人【事件描述，如：自行拔除 Foley】，立即【處置】，已告知【醫師】，表【回覆/新醫囑】，【後續追蹤】。` }
 };
-const templateLabel = key => { const t = TEMPLATES[key]; return t ? `${t.group}・${t.label}` : ''; };
+const templateLabel = key => { if (key === 'kardex') return '交班單 Kardex'; const t = TEMPLATES[key]; return t ? `${t.group}・${t.label}` : ''; };
+let currentMode = '留觀';
+function getTemplate(){ return currentMode === 'kardex' ? 'kardex' : $('#template').value; }
+function setMode(mode, keepTemplate){
+  currentMode = mode;
+  $$('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  const isK = mode === 'kardex';
+  $('#tplWrap').classList.toggle('hidden', isK);
+  $('#kardexHint').classList.toggle('hidden', !isK);
+  if (!isK){
+    $('#template').innerHTML = Object.entries(TEMPLATES).filter(([, t]) => t.group === mode).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('');
+    if (keepTemplate && TEMPLATES[keepTemplate] && TEMPLATES[keepTemplate].group === mode) $('#template').value = keepTemplate;
+  }
+  LS.set('vnw_last', { mode, template: isK ? (LS.get('vnw_last', {}).template || '') : $('#template').value });
+  showPrevious();
+}
 
 /* 4A（院內規範 3.1.6.4）與鼻胃管自拔風險 */
 const FOUR_A = [
@@ -953,7 +982,7 @@ async function onRecorderStop(){
   const rec = {
     id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     author: cfg.author || '', mrn: $('#mrn').value.trim(), bed: $('#bed').value.trim(), age: $('#age').value.trim(), problem: $('#problem').value.trim(),
-    template: $('#template').value, dx: $('#dx').value, checked: getChecked(),
+    template: getTemplate(), dx: $('#dx').value, checked: getChecked(), useKardex: !!($('#useKardex') && $('#useKardex').checked),
     durationSec: Math.round(dur), audioBlob: blob, audioMime: blob.type.split(';')[0] || 'audio/webm',
     liveCaption: (liveFinal + liveInterim).trim(), status:'processing', model: currentModel(),
     narrative:'', transcript:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
@@ -965,14 +994,16 @@ async function onRecorderStop(){
 }
 
 async function runAI(rec){
+  if (rec.template === 'kardex') return runKardexAI(rec);
   setState('processing', 'AI 整理中…（約 5–20 秒）');
   rec.status = 'processing'; showResult(rec);
   try {
     const prev = await previousRecord(rec);
     const prevFlags = prev ? (prev.flags || []).filter(f => !f.resolved) : [];
+    const krecs = (rec.useKardex && rec.template === 'complete') ? await kardexHistory(rec.mrn, rec.id) : [];
     const b64 = await blobToBase64(rec.audioBlob);
     const { text, model } = await callGemini({
-      parts:[{ text: buildPrompt(rec, prevFlags, prev) }, { inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: b64 } }],
+      parts:[{ text: buildPrompt(rec, prevFlags, prev) + kardexToRBlock(krecs) }, { inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: b64 } }],
       schema: SCHEMA, maxTokens: 12000
     });
     let r = parseJSON(text);
@@ -1093,7 +1124,26 @@ function renderLive(){
 const toHalf = s => String(s || '').replace(/[０-９．／％]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
 // 含數字的縮寫（SPO2、O2、FiO2、HCO3、3way…）不當成數值比對；用等長空白蓋掉以保留位置
 const ALNUM_TOKENS = /(SPO2|SaO2|PaO2|PO2|PaCO2|PCO2|CO2|FiO2|O2|HCO3|3\s*-?\s*way|D5W|D5S|B12|G6PD|H2O)/gi;
-const maskTokens = s => String(s || '').replace(ALNUM_TOKENS, m => ' '.repeat(m.length));
+const DATE_TIME = /\d{4}\/\d{1,2}\/\d{1,2}|\d{1,2}:\d{2}/g;
+const maskTokens = s => String(s || '').replace(ALNUM_TOKENS, m => ' '.repeat(m.length)).replace(DATE_TIME, m => ' '.repeat(m.length));
+// 逐字稿中的中文數字（三十八點六度、一顆、半支）轉成阿拉伯數字再比對
+const CN_D = { 零:0, 一:1, 二:2, 兩:2, 三:3, 四:4, 五:5, 六:6, 七:7, 八:8, 九:9 };
+function cnInt(str){
+  let total = 0, cur = 0;
+  for (const ch of str){
+    if (ch in CN_D) cur = CN_D[ch];
+    else if (ch === '十'){ total += (cur || 1) * 10; cur = 0; }
+    else if (ch === '百'){ total += (cur || 1) * 100; cur = 0; }
+    else return NaN;
+  }
+  return total + cur;
+}
+function cnToArabic(str){
+  return String(str || '')
+    .replace(/([零一二兩三四五六七八九十百]+)點([零一二三四五六七八九]+)/g, (m, a, b) => { const i = cnInt(a); return isNaN(i) ? m : i + '.' + Array.from(b).map(c => CN_D[c]).join(''); })
+    .replace(/半(?=[顆支])/g, '0.5')
+    .replace(/([零一二兩三四五六七八九十百]+)(?=[顆支床天歲次分度號個瓶包毫公cC%小])/g, (m, a) => { const i = cnInt(a); return isNaN(i) ? m : String(i); });
+}
 // 動作句：紀錄寫了，逐字稿就應該有對應的說法
 const CLAIMS = [
   { label:'衛教',     re:/已?衛教/g,                                   ev:/衛教|教他|教病人|教家屬|有教|說明|提醒|告訴(病人|家屬)/ },
@@ -1130,7 +1180,7 @@ function numInText(n, hay){
 }
 function verifyRecord(rec){
   const text = rec.narrative || '';
-  const trans = maskTokens(toHalf(rec.transcript || '')).replace(/\s+/g, '');
+  const trans = maskTokens(cnToArabic(toHalf(rec.transcript || ''))).replace(/\s+/g, '');
   const res = { marks:[], numMissing:[], claimMissing:[], tpl:[], omitted:[], ok:true, hasTranscript: !!trans };
   if (!text || !trans) return res;
   const brs = bracketRanges(text);
@@ -1285,6 +1335,160 @@ function tubesHtml(rec){
   return h + '</div>';
 }
 
+/* ================= 交班單 Kardex（沿用 5 月版規則） ================= */
+const KARDEX_COLS = [
+  { k:'startTime', name:'開始時間' }, { k:'event', name:'事件' }, { k:'action', name:'處理' },
+  { k:'followup', name:'追蹤' }, { k:'note', name:'註記' }, { k:'endTime', name:'結束時間' }
+];
+const KARDEX_SCHEMA = {
+  type:'OBJECT',
+  properties:{
+    transcript:{ type:'STRING' },
+    judgementReason:{ type:'STRING' },
+    entries:{ type:'ARRAY', items:{ type:'OBJECT', properties:{
+      startTime:{ type:'STRING' }, event:{ type:'STRING' }, action:{ type:'STRING' },
+      followup:{ type:'STRING' }, note:{ type:'STRING' }, endTime:{ type:'STRING' } }, required:['event'] } },
+    measurements: SCHEMA.properties.measurements,
+    flags: SCHEMA.properties.flags
+  },
+  required:['transcript','entries']
+};
+const KARDEX_RULES = `你是急診護理 Kardex 整理助手。Kardex 是急診留觀病人的「交班摘要表」，以六欄位格式記錄：
+開始時間 | 事件 | 處理 | 追蹤 | 註記 | 結束時間
+
+【Kardex 的本質】
+Kardex 不是「什麼都寫」的紀錄，而是「只記關鍵醫囑與 data」的交班摘要。
+- 4A 肌力評估、吞嚥評估、衛教、觀察、4 小時 V/S 等屬於「R 紀錄」的事，不要塞進 Kardex。
+- Kardex 只關心：有什麼重要問題 → 下了什麼醫囑 → 醫囑執行後 data 是什麼。
+
+【三欄邏輯：事件 → 處理 → 追蹤】（三欄要對齊，項目對項目）
+事件 = 為什麼下這些醫囑（臨床問題或背景）
+- 第一筆：年齡性別、診斷、檢傷病史、過敏史、入院時的關鍵狀態（GCS、特殊症狀）
+- 追加條目：只寫這次的新事件，例：「查房」「Na 119mmol/L」「病人躁動、T 39.2℃」「自拔 Foley」
+處理 = 下了什麼醫囑（含明日預計要做的）
+- 診斷性：brain CT、CXR、EKG、Abd echo、MRI、頸動脈超音波、Lab 抽血
+- 治療性：藥物、輸液、輸血；管路：on NG、on Foley、on CVC；飲食/活動：NPO、軟質飲食、絕對臥床
+- 預計要做的也放這裡：「明日07:00 F/U MRI、頸部超音波」
+- 不要寫：監測呼吸道、評估吞嚥、觀察嗆咳、4A 評估、衛教、「必要時」的處置
+追蹤 = 醫囑執行後的 DATA 結果
+- 影像：CT：no ICH／CXR：no PN／EKG：Af／MRI：左側梗塞
+- 抽血：Bil 2.8mg/dL↑／Na 119mmol/L↓／WBC 12000/μL↑（檢驗值後面加單位）
+- 還沒有 data → 寫「（等明日 data）」「待報告」或留空
+註記 = 管路資訊、跌倒評估、過敏警示等
+結束時間 = 通常空白
+
+【範例 A - 第一筆（Stroke 入院）】
+事件：● 病人 診斷 Stroke ● 留觀第 1 天（3 床）● 檢傷病史：腦中風入急診 ● 過敏史：NKA ● 現況：意識清楚 GCS E4V5M6，右側肢體乏力（RUE 3分／RLE 4分）
+處理：● brain CT ● CXR ● EKG ● 吞嚥反射評估通過 → Bokey 1顆 PO、Brinta 2顆 PO
+追蹤：● CT：no ICH ● CXR：no PN ● EKG：Af ● 尾骶骨：壓紅
+註記：右手 20 號 IV free、高跌評估高風險、需人扶持
+【範例 B - 追加條目（查房）】事件：查房／處理：● 明日 F/U MRI ● 頸部超音波／追蹤：（等明日 data）
+【範例 C - 追加條目（Lab 異常）】事件：Na 119mmol/L／處理：● 告知醫師 ● NS 500cc IVD ● 2 小時後重驗 Na／追蹤：（等重驗結果）
+
+【藥物寫法 - 簡潔】
+針劑「N 支」（Buscopan 1支 IV、Morphine 0.5支 IV）、口服「N 顆」（Strocain 2顆 PO，不用 #）、輸液寫 cc（NS 500cc IV run）。
+不寫毫克數、不寫 vial；除非護理師特別強調劑量才保留毫克數。途徑保留英文：IV、IVP、IVD、IM、PO、SC。
+【醫學術語保留英文】V/S、NBP、SPO2、GCS、Foley、IV、NG、NPO、IVD、CXR、EKG、CT、MRI、CBC、BUN、Cr、Na、K、Bil、WBC、Hb、PLT、NKA、DNR、ICH、PN、Af 等
+【口語去除】「然後」「那個」「啊」「呃」「這樣子」「哦」「嗯」全部略過
+【多個項目】同一欄多個項目用「● 」開頭並以換行分隔。
+【不可編造】口述沒提到的醫囑、data、過敏史不要自己補；不確定的用【】標示請護理師確認。`;
+
+function nowStamp(){ const d = new Date(); return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function kardexEntries(rec){ return (rec.sections && Array.isArray(rec.sections.kardex)) ? rec.sections.kardex : []; }
+function kardexText(entries){
+  return (entries || []).map(e => KARDEX_COLS.filter(c => e[c.k]).map(c => `${c.name}：${e[c.k]}`).join('\n')).join('\n\n');
+}
+async function kardexHistory(mrn, excludeId){
+  const { records } = await listRecords({ mrn });
+  return records.filter(r => r.template === 'kardex' && r.status === 'done' && r.id !== excludeId)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+function kardexPriorBlock(prior){
+  if (!prior.length) return '【本病歷號 Kardex 歷史】無';
+  return '【本病歷號 Kardex 歷史】（以下已記錄過，這次不要重複）\n' + prior.map((r, i) =>
+    `--- 第 ${i + 1} 筆（${fmtTime(r.createdAt)}）---\n` + kardexText(kardexEntries(r))).join('\n');
+}
+async function runKardexAI(rec){
+  setState('processing', 'AI 整理 Kardex 中…');
+  rec.status = 'processing'; showResult(rec);
+  try {
+    const prior = await kardexHistory(rec.mrn, rec.id);
+    const isFirst = !prior.length;
+    const parts = [];
+    const head = `${KARDEX_RULES}
+
+【個案床號】${rec.bed}（病歷號由系統另外保存，輸出中不可出現病歷號、身分證字號或病人全名）
+年齡：${rec.age || '【未填】'}　主要問題：${rec.problem || '【未填】'}
+${kardexPriorBlock(prior)}
+
+【本次判定】${isFirst ? '第一筆：本病歷號沒有 Kardex 歷史，請完整記錄背景、入院醫囑與 data。' : '追加條目：已有 Kardex，請盡量精簡，只寫這次新的事件、醫囑與 data，不要重複歷史內容。'}
+開始時間若口述沒提到，填「${nowStamp()}」。
+`;
+    const tail = `
+【請輸出 JSON】
+1. transcript：${rec.sourceText ? '照抄下方「本次要整理的內容」' : '逐字轉寫錄音（繁體中文，數字一律用阿拉伯數字，刪除開頭結尾的「開始」「結束」指令）'}。
+2. judgementReason：一句話說明為什麼是${isFirst ? '第一筆' : '追加條目'}。
+3. entries：至少 1 筆，欄位 startTime、event、action、followup、note、endTime，沒有內容填空字串。
+4. measurements：內容中每一個 V/S 或檢驗數值列一筆（value 只放數字，unit 放單位，不確定留空）。
+5. flags：需要追蹤的異常（發燒、低血壓、電解質異常等），detail 寫數值與單位；沒有就空陣列。`;
+    if (rec.sourceText){
+      parts.push({ text: head + `\n【本次要整理的內容】\n${rec.sourceText}\n` + tail });
+    } else {
+      parts.push({ text: head + '\n【本次要整理的內容】附件是護理師的口述錄音，請直接聆聽。\n' + tail });
+      parts.push({ inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: await blobToBase64(rec.audioBlob) } });
+    }
+    const { text, model } = await callGemini({ parts, schema: KARDEX_SCHEMA, maxTokens: 10000 });
+    const parsed = parseJSON(text);
+    let r = parsed;
+    let entries = Array.isArray(r.entries) ? r.entries.filter(e => e && (e.event || e.action || e.followup)) : [];
+    if (!entries.length) throw new Error('AI 沒有產出任何 Kardex 條目，請重新產出或簡化口述');
+    entries = entries.map(e => Object.assign({ startTime: nowStamp(), event:'', action:'', followup:'', note:'', endTime:'' }, e, { startTime: e.startTime || nowStamp() }));
+    r = await applyUnitsAndFlags({ measurements: r.measurements || [], flags: r.flags || [], narrative: '' , transcript: r.transcript });
+    entries.forEach(e => ['event','action','followup','note'].forEach(k => { e[k] = addUnitsToNarrative(e[k] || '', r.measurements || []); }));
+    const txt = kardexText(entries);
+    Object.assign(rec, {
+      transcript: (rec.sourceText ? rec.transcript : '') || parsed.transcript || '',
+      narrative: txt, narrativeAI: txt, editLog: [], edited:false,
+      sections:{ kardex: entries, kardexFirst: isFirst, judgementReason: parsed.judgementReason || '' },
+      measurements: r.measurements, flags: r.flags, fourA:null, tubes:[], ngRisk:null, missing:[],
+      model, status:'done', updatedAt: new Date().toISOString()
+    });
+    { const v = verifyRecord(rec); rec.verify = { numMissing:v.numMissing, claimMissing:v.claimMissing, tpl:v.tpl, omitted:v.omitted, ok:v.ok }; }
+    await DB.put(rec); showResult(rec); setState('idle');
+    toast(isFirst ? 'Kardex 第一筆完成' : 'Kardex 追加條目完成');
+    syncRecord(rec).then(() => { if (currentRec === rec) showResult(rec); });
+    refreshTrackBadge();
+    window.NursingNoteAPI._listeners.forEach(fn => { try { fn(stripForCloud(rec)); } catch(_){} });
+  } catch(e){
+    rec.status = 'ai_failed'; rec.error = e.message; await DB.put(rec);
+    showResult(rec); setState('idle'); toast('Kardex 整理失敗：' + e.message, 6000);
+  }
+}
+function kardexHtml(rec){
+  const entries = kardexEntries(rec);
+  const first = rec.sections && rec.sections.kardexFirst;
+  return `<div class="row" style="margin-bottom:8px"><span class="chip ${first ? 'info' : 'ok'}">${first ? '🆕 第一筆' : '🔄 追加條目'}</span>
+      <span class="hint" style="margin:0">${esc((rec.sections && rec.sections.judgementReason) || '')}</span></div>
+    <div class="tbl-wrap"><table class="kardex"><thead><tr>${KARDEX_COLS.map(c => `<th>${c.name} <button type="button" class="mini" data-act="copyCol" data-id="${esc(rec.id)}" data-col="${c.k}" title="複製這一欄">📋</button></th>`).join('')}</tr></thead>
+    <tbody>${entries.map((e, i) => `<tr>${KARDEX_COLS.map(c => `<td contenteditable="true" data-kcell="${esc(rec.id)}" data-row="${i}" data-col="${c.k}">${esc(e[c.k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <div class="hint">表格可直接點進去修改（會留下修改紀錄）。每欄標題的 📋 可單獨複製那一欄，方便貼進 NIS。</div>`;
+}
+// R 紀錄首筆可帶入 Kardex（5 月版規則）
+function kardexToRBlock(krecs){
+  if (!krecs || !krecs.length) return '';
+  let b = '\n【🔗 已引用的 Kardex 資訊 - 請以此為基礎寫 R 紀錄首筆】\n';
+  krecs.forEach((k, i) => { b += `\n--- Kardex ${i + 1}（${fmtTime(k.createdAt)}）---\n` + kardexText(kardexEntries(k)) + '\n'; });
+  return b + `
+【Kardex → R 紀錄 轉換規則】
+留觀 R 紀錄關心的是「現在病人怎麼樣」，不是「之前做了什麼」，不要重複 Kardex 的內容。
+要帶進 R 紀錄的 5 項：診斷/主要問題（一句）、主訴、過敏史、管路（規格+部位）、高跌評估等級。
+重要 data 只帶結論（最多 1-2 個與診斷直接相關的數值，例「CT 確診 Acute pancreatitis」「Lipase 148U/L 偏高」）。
+不要帶：詳細醫囑清單、所有用藥明細、完整病程時序、所有抽血 data、V/S 數值（一律寫「【從NIS帶入V/S】」）。
+R 紀錄首筆結構：
+R:病人因【診斷】入急診，經醫師評估後於留觀XX床待床，由【陪伴者】陪伴，GCS：E_V_M_，生命徵象：【從NIS帶入V/S】，過敏史：【】，檢傷主訴：【】，目前診斷：【】，管路如下：【】。【護理師錄音補充：床邊評估、症狀現況、身體評估、skin、飲食、衛教】。【高跌等級】。無用藥物不良反應，無不適主訴，續觀。
+`;
+}
+
 /* ================= 結果呈現 ================= */
 function flagChip(f){
   const cls = f.resolved ? 'ok' : (f.severity === 'alert' ? 'alert' : 'caution');
@@ -1305,6 +1509,7 @@ function sectionsHtml(sec){
 }
 function recordText(rec){ return (rec.narrative || '').trim(); }
 function structuredText(rec){
+  if (rec.template === 'kardex') return `床號：${rec.bed}　病歷號：${rec.mrn}\n` + kardexText(kardexEntries(rec));
   const lines = [];
   lines.push(`床號：${rec.bed}　病歷號：${rec.mrn}　時間：${fmtTime(rec.createdAt)}`);
   (rec.measurements || []).forEach(m => lines.push(`${m.item}：${m.value}${m.unit ? ' ' + m.unit : ''}${m.abnormal ? '（異常）' : ''}`));
@@ -1327,7 +1532,12 @@ function recordBodyHtml(rec, opts){
   }
   if ((rec.flags || []).length) h += `<div class="flags" style="margin-bottom:12px">${rec.flags.map(flagChip).join('')}</div>`;
   if (rec.compareHtml) h += rec.compareHtml;
-  if (rec.status !== 'ai_failed'){
+  if (rec.status !== 'ai_failed' && rec.template === 'kardex'){
+    h += kardexHtml(rec);
+    h += `<div data-audit="${esc(rec.id)}">${editAuditHtml(rec)}</div>`;
+    h += `<h2 style="margin:16px 0 8px">🔍 逐字稿比對</h2><div data-verify="${esc(rec.id)}">${verifyHtml(rec)}</div>`;
+    if ((rec.measurements || []).length) h += `<h2 style="margin:16px 0 8px">數值與單位</h2>` + measurementTable(rec.measurements);
+  } else if (rec.status !== 'ai_failed'){
     h += `<label class="f"><span>護理紀錄（可修改，修改會留下紀錄）</span><textarea class="note" data-edit="narrative" data-id="${esc(rec.id)}">${esc(rec.narrative)}</textarea></label>`;
     h += `<div data-audit="${esc(rec.id)}">${editAuditHtml(rec)}</div>`;
     h += `<h2 style="margin:16px 0 8px">🔍 逐字稿比對</h2><div data-verify="${esc(rec.id)}">${verifyHtml(rec)}</div>`;
@@ -1345,6 +1555,7 @@ function recordBodyHtml(rec, opts){
     <button class="btn primary" type="button" data-act="copyNote" data-id="${esc(rec.id)}">📋 複製紀錄</button>
     <button class="btn" type="button" data-act="copyStruct" data-id="${esc(rec.id)}">📊 複製結構化</button>
     <button class="btn" type="button" data-act="emr" data-id="${esc(rec.id)}">🏥 轉入病歷</button>
+    ${rec.template !== 'kardex' && rec.status === 'done' ? `<button class="btn" type="button" data-act="toKardex" data-id="${esc(rec.id)}">📊 轉成 Kardex</button>` : ''}
     <button class="btn" type="button" data-act="redo" data-id="${esc(rec.id)}">🔄 重新產出</button>
   </div>`;
   return h;
@@ -1358,10 +1569,10 @@ function showResult(rec){
 
 async function previousRecord(rec){
   const all = await listLocal({ mrn: rec.mrn });
-  const prev = all.filter(r => r.id !== rec.id && r.status === 'done' && new Date(r.createdAt) < new Date(rec.createdAt));
+  const prev = all.filter(r => r.id !== rec.id && r.status === 'done' && r.template !== 'kardex' && new Date(r.createdAt) < new Date(rec.createdAt));
   let p = prev[0] || null;
   if (!p && cloudReady()){
-    try { const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn, limit: 3 } }); p = (r.records || []).find(x => x.id !== rec.id) || null; } catch(e){}
+    try { const r = await gasCall({ action:'list', filter:{ mrn: rec.mrn, limit: 3 } }); p = (r.records || []).find(x => x.id !== rec.id && x.template !== 'kardex') || null; } catch(e){}
   }
   return p;
 }
@@ -1369,12 +1580,16 @@ async function showPrevious(){
   const mrn = $('#mrn').value.trim(); const box = $('#prevBox');
   if (!mrn){ box.classList.add('hidden'); return; }
   const all = await listLocal({ mrn });
-  const p = all.find(r => r.status === 'done');
-  if (!p){ box.classList.add('hidden'); return; }
+  const p = all.find(r => r.status === 'done' && r.template !== 'kardex');
+  const ks = all.filter(r => r.status === 'done' && r.template === 'kardex');
+  const showK = ks.length && currentMode === '留觀' && $('#template').value === 'complete';
+  const kHtml = showK ? `<label class="switch" style="margin-top:8px"><input type="checkbox" id="useKardex" checked> 💡 此病歷號已有 ${ks.length} 筆 Kardex，帶入 R 紀錄首筆（診斷、主訴、過敏、管路、高跌）</label>` : '';
+  if (!p && !showK){ box.classList.add('hidden'); return; }
+  if (!p){ box.innerHTML = kHtml; box.classList.remove('hidden'); return; }
   const open = (p.flags || []).filter(f => !f.resolved);
   const vit = (p.measurements || []).filter(m => m.category === '生命徵象').map(m => `${m.item} ${m.value}${m.unit ? ' ' + m.unit : ''}`).join('、');
   box.innerHTML = `<b>前次紀錄</b>（${fmtTime(p.createdAt)}，${esc(p.bed)} 床）${vit ? '：' + esc(vit) : ''}` +
-    (open.length ? `<div class="flags" style="margin-top:6px">${open.map(flagChip).join('')}</div><div class="hint">這次錄音若提到相關數值，AI 會一併說明變化。</div>` : '');
+    (open.length ? `<div class="flags" style="margin-top:6px">${open.map(flagChip).join('')}</div><div class="hint">這次錄音若提到相關數值，AI 會一併說明變化。</div>` : '') + (kHtml ? '<div>' + kHtml + '</div>' : '');
   box.classList.remove('hidden');
   if (!$('#bed').value.trim() && p.bed) $('#bed').value = p.bed;
 }
@@ -1511,7 +1726,7 @@ function buildEMRPayload(rec){
     schema: 'cych-ed-nursing-note/1.0',
     patient: { mrn: rec.mrn, bed: rec.bed },
     encounter: { recordedAt: rec.createdAt, author: rec.author || '', noteType: templateLabel(rec.template) || rec.template },
-    note: { text: recordText(rec), sections: rec.sections || {} },
+    note: { text: recordText(rec), sections: rec.template === 'kardex' ? {} : (rec.sections || {}), kardex: rec.template === 'kardex' ? kardexEntries(rec) : null },
     observations: (rec.measurements || []).map(m => ({ category: m.category || '其他', item: m.item, value: m.value, unit: m.unit || '', abnormal: !!m.abnormal })),
     flags: (rec.flags || []).map(f => ({ type: f.type, severity: f.severity, detail: f.detail, followUp: f.followUp, resolved: !!f.resolved })),
     assessments: { fourA: rec.fourA || null, tubes: rec.tubes || [], ngRisk: rec.ngRisk || null },
@@ -1574,13 +1789,11 @@ function updateSettingsView(){
 
 /* ================= 初始化 ================= */
 function renderSelects(){
-  const groups = {};
-  Object.entries(TEMPLATES).forEach(([k, t]) => { (groups[t.group] = groups[t.group] || []).push(`<option value="${k}">${esc(t.label)}</option>`); });
-  $('#template').innerHTML = Object.entries(groups).map(([g, opts]) => `<optgroup label="${esc(g)}紀錄">${opts.join('')}</optgroup>`).join('');
+
   $('#dx').innerHTML = '<option value="">不使用</option>' + COACH.map(d => `<option value="${esc(d.id)}">${esc(d.icon + ' ' + d.title)}</option>`).join('');
   $('#sModel').innerHTML = MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join('');
   const last = LS.get('vnw_last', {});
-  if (last.template && TEMPLATES[last.template]) $('#template').value = last.template; else $('#template').value = 'complete';
+  setMode(last.mode === 'kardex' || last.mode === '治療區' ? last.mode : '留觀', last.template || 'complete');
 }
 function switchView(v){
   $$('nav.tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
@@ -1604,9 +1817,24 @@ document.addEventListener('click', async ev => {
     case 'redo':
       if (!rec) break;
       if (!rec.audioBlob){ const full = await DB.get(rec.id); if (full && full.audioBlob) rec.audioBlob = full.audioBlob; }
-      if (!rec.audioBlob){ toast('這台裝置沒有這筆錄音，無法重新產出'); break; }
+      if (!rec.audioBlob && !rec.sourceText){ toast('這台裝置沒有這筆錄音，無法重新產出'); break; }
       closeAllModals(); switchView('record'); currentRec = rec; showResult(rec); runAI(rec); break;
     case 'resolve': resolveFlag(id, t.dataset.flag); break;
+    case 'copyCol': {
+      if (!rec) break;
+      const vals = kardexEntries(rec).map(e => e[t.dataset.col] || '').filter(Boolean);
+      copyText(vals.join('\n\n'), (KARDEX_COLS.find(c => c.k === t.dataset.col) || {}).name); break;
+    }
+    case 'toKardex': {
+      if (!rec) break;
+      const k = {
+        id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), author: cfg.author || '',
+        mrn: rec.mrn, bed: rec.bed, age: rec.age || '', problem: rec.problem || '', template:'kardex', dx: rec.dx || '',
+        durationSec: 0, transcript: rec.transcript || '', sourceText: `【R 紀錄】\n${rec.narrative || ''}\n\n【逐字稿】\n${rec.transcript || ''}`,
+        sourceId: rec.id, status:'processing', model: currentModel(), narrative:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
+      };
+      await DB.put(k); closeAllModals(); switchView('record'); currentRec = k; showResult(k); runKardexAI(k); break;
+    }
     case 'fa':
       if (!rec || !rec.fourA) break;
       rec.fourA[t.dataset.k] = t.dataset.v; rec.fourA.manual = true; rec.updatedAt = new Date().toISOString(); rec.synced = false;
@@ -1630,6 +1858,21 @@ document.addEventListener('change', async ev => {
 });
 document.addEventListener('focusout', async ev => {
   const t = ev.target;
+  if (t.matches && t.matches('[data-kcell]')){
+    const rec = (currentRec && currentRec.id === t.dataset.kcell) ? currentRec : (lastList.find(r => r.id === t.dataset.kcell) || await DB.get(t.dataset.kcell));
+    const entries = rec ? kardexEntries(rec) : [];
+    const e = entries[+t.dataset.row]; const val = t.innerText.trim();
+    if (e && e[t.dataset.col] !== val){
+      e[t.dataset.col] = val;
+      if (rec.narrativeAI === undefined) rec.narrativeAI = rec.narrative;
+      rec.narrative = kardexText(entries); rec.edited = rec.narrativeAI !== rec.narrative; rec.updatedAt = new Date().toISOString();
+      rec.editLog = (rec.editLog || []).concat([{ at: rec.updatedAt, by: cfg.author || '', field: (KARDEX_COLS.find(c => c.k === t.dataset.col) || {}).name }]);
+      $$(`[data-verify="${rec.id}"]`).forEach(el => el.innerHTML = verifyHtml(rec));
+      $$(`[data-audit="${rec.id}"]`).forEach(el => el.innerHTML = editAuditHtml(rec));
+      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec); syncRecord(rec);
+    }
+    return;
+  }
   if (t.matches('textarea[data-edit]')){
     const rec = (currentRec && currentRec.id === t.dataset.id) ? currentRec : await DB.get(t.dataset.id);
     if (rec && rec[t.dataset.edit] !== t.value){
@@ -1669,7 +1912,8 @@ $('#btnTestGas').addEventListener('click', async () => {
   cfg = old;
 });
 $('#dx').addEventListener('change', renderCoach);
-$('#template').addEventListener('change', () => LS.set('vnw_last', { template: $('#template').value }));
+$('#template').addEventListener('change', () => { LS.set('vnw_last', { mode: currentMode, template: $('#template').value }); showPrevious(); });
+$('#modes').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) setMode(b.dataset.mode); });
 $('#mrn').addEventListener('change', showPrevious);
 $('#mrn').addEventListener('input', e => e.target.classList.remove('missing'));
 $('#bed').addEventListener('input', e => e.target.classList.remove('missing'));
