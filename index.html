@@ -1990,12 +1990,14 @@ function recordBodyHtml(rec, opts){
   });
   h += rec.status === 'ai_failed' ? `<div class="pre">${esc(rec.liveCaption || '（尚無逐字稿）')}</div></details>` : '</details>';
   h += `<div class="row" style="margin-top:14px">
-    <button class="btn primary" type="button" data-act="copyNote" data-id="${esc(rec.id)}">📋 複製紀錄</button>
+    <button class="btn primary" type="button" data-act="saveNow" data-id="${esc(rec.id)}">💾 儲存</button>
+    <button class="btn" type="button" data-act="copyNote" data-id="${esc(rec.id)}">📋 複製紀錄</button>
     <button class="btn" type="button" data-act="copyStruct" data-id="${esc(rec.id)}">📊 複製結構化</button>
     <button class="btn" type="button" data-act="emr" data-id="${esc(rec.id)}">🏥 轉入病歷</button>
     ${rec.template !== 'kardex' && rec.status === 'done' ? `<button class="btn" type="button" data-act="toKardex" data-id="${esc(rec.id)}">📊 轉成 Kardex</button>` : ''}
     <button class="btn" type="button" data-act="redo" data-id="${esc(rec.id)}">🔄 重新產出</button>
-  </div>`;
+  </div>
+  <div class="hint" style="margin-top:6px"><span data-savestate="${esc(rec.id)}">${rec.synced ? `☁️ 已存雲端（${fmtTime(rec.updatedAt)}）` : `💾 已存本機（${fmtTime(rec.updatedAt)}）`}</span>。修改後離開欄位會自動儲存，按「💾 儲存」可立即存檔並上傳。</div>`;
   return h;
 }
 function showResult(rec){
@@ -2237,6 +2239,7 @@ document.addEventListener('click', async ev => {
   const id = t.dataset.id;
   const rec = (currentRec && currentRec.id === id) ? currentRec : (lastList.find(r => r.id === id) || await DB.get(id));
   switch (t.dataset.act){
+    case 'saveNow': if (rec) await saveNow(rec, t); break;
     case 'copyNote': if (rec) copyText(recordText(rec), '護理紀錄'); break;
     case 'copyStruct': if (rec) copyText(structuredText(rec), '結構化內容'); break;
     case 'copyEmrJson': if (rec) copyText(JSON.stringify(buildEMRPayload(rec), null, 2), 'JSON'); break;
@@ -2343,8 +2346,8 @@ document.addEventListener('change', async ev => {
   const t = ev.target;
   if (t.closest('#coachList')){ t.closest('.ck').classList.toggle('on', t.checked); }
 });
-document.addEventListener('focusout', async ev => {
-  const t = ev.target;
+// 寫入修改（離開欄位時自動執行；按「💾 儲存」也會執行）
+async function commitEdit(t){
   if (t.matches && t.matches('[data-kcell]')){
     const rec = (currentRec && currentRec.id === t.dataset.kcell) ? currentRec : (lastList.find(r => r.id === t.dataset.kcell) || await DB.get(t.dataset.kcell));
     const entries = rec ? kardexEntries(rec) : [];
@@ -2356,22 +2359,45 @@ document.addEventListener('focusout', async ev => {
       rec.editLog = (rec.editLog || []).concat([{ at: rec.updatedAt, by: cfg.author || '', field: (KARDEX_COLS.find(c => c.k === t.dataset.col) || {}).name }]);
       $$(`[data-verify="${rec.id}"]`).forEach(el => el.innerHTML = verifyHtml(rec));
       $$(`[data-audit="${rec.id}"]`).forEach(el => el.innerHTML = editAuditHtml(rec));
-      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec); syncRecord(rec);
+      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec);
+      return rec;
     }
-    return;
+    return null;
   }
-  if (t.matches('textarea[data-edit]')){
-    const rec = (currentRec && currentRec.id === t.dataset.id) ? currentRec : await DB.get(t.dataset.id);
+  if (t.matches && t.matches('textarea[data-edit]')){
+    const rec = (currentRec && currentRec.id === t.dataset.id) ? currentRec : (lastList.find(r => r.id === t.dataset.id) || await DB.get(t.dataset.id));
     if (rec && rec[t.dataset.edit] !== t.value){
       if (rec.narrativeAI === undefined) rec.narrativeAI = rec[t.dataset.edit];
       rec[t.dataset.edit] = t.value; rec.edited = rec.narrativeAI !== t.value; rec.updatedAt = new Date().toISOString();
       rec.editLog = (rec.editLog || []).concat([{ at: rec.updatedAt, by: cfg.author || '' }]);
       $$(`[data-verify="${rec.id}"]`).forEach(el => el.innerHTML = verifyHtml(rec));
       $$(`[data-audit="${rec.id}"]`).forEach(el => el.innerHTML = editAuditHtml(rec));
-      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec); syncRecord(rec);
+      rec.synced = false; if (await DB.get(rec.id)) await DB.put(rec);
+      return rec;
     }
   }
+  return null;
+}
+document.addEventListener('focusout', async ev => {
+  const rec = await commitEdit(ev.target);
+  if (rec) syncRecord(rec).then(() => updateSaveState(rec));
 });
+function updateSaveState(rec){
+  const txt = rec.synced ? `☁️ 已存雲端（${fmtTime(rec.updatedAt)}）` : (cloudReady() ? '⏳ 尚未同步' : `💾 已存本機（${fmtTime(rec.updatedAt)}）`);
+  $$(`[data-savestate="${rec.id}"]`).forEach(el => el.textContent = txt);
+  if (currentRec && currentRec.id === rec.id) $('#resultSync').textContent = rec.synced ? '☁️ 已存雲端' : (cloudReady() ? '⏳ 尚未同步' : '💾 已存本機');
+}
+async function saveNow(rec, btn){
+  const els = $$(`textarea[data-edit][data-id="${rec.id}"], [data-kcell="${rec.id}"]`);
+  for (const el of els){ const r = await commitEdit(el); if (r && r !== rec) Object.assign(rec, r); }
+  if (!(await DB.get(rec.id))) await DB.put(rec);
+  if (btn){ btn.disabled = true; btn.textContent = '儲存中…'; }
+  let ok = true;
+  if (cloudReady() && !rec.synced) ok = await syncRecord(rec);
+  if (btn){ btn.disabled = false; btn.textContent = '💾 儲存'; }
+  updateSaveState(rec);
+  toast(!cloudReady() ? '已儲存在這台裝置（尚未設定雲端）' : ok ? '已儲存並上傳雲端' : '已存本機，雲端上傳失敗，稍後可到查詢頁「全部上傳」');
+}
 
 $('#mic').addEventListener('click', () => { if (state === 'idle') startRecording('button'); else if (state === 'recording') stopRecording('button'); });
 $('#cmdToggle').addEventListener('change', e => {
