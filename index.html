@@ -147,10 +147,11 @@ mark.tpl{background:var(--surface-2);border-bottom:1px dashed var(--muted)}
 .seg button.on{background:var(--surface-2);color:var(--text);font-weight:700}
 .seg button.on.ok{background:var(--ok-bg);color:var(--ok)}
 .seg button.on.bad{background:var(--danger-bg);color:var(--danger)}
-.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.modes button.link{border-style:dashed}
 .modes button{padding:12px 8px;border:2px solid var(--border);background:var(--surface);border-radius:10px;cursor:pointer;font-weight:700;font-size:15px;color:var(--muted)}
 .modes button.on{border-color:var(--primary);background:var(--info-bg);color:var(--primary)}
-@media (max-width:480px){.modes button{font-size:13px;padding:10px 4px}}
+@media (max-width:480px){.modes{grid-template-columns:repeat(2,1fr)}.modes button{font-size:13px;padding:10px 4px}}
 table.kardex td{white-space:pre-wrap;min-width:90px;font-size:14px}
 table.kardex td:first-child{min-width:110px}
 table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);background:var(--info-bg)}
@@ -165,7 +166,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
 <header class="top">
   <div class="in">
     <h1>🎙️ 急診語音護理紀錄<span class="meta" id="hdrMeta">—</span></h1>
-    <button class="hbtn" id="btnSettings" type="button">⚙️ 設定</button>
+    <span class="row" style="gap:6px"><button class="hbtn hidden" id="btnMe" type="button" title="帳號中心"></button><button class="hbtn" id="btnSettings" type="button">⚙️ 設定</button></span>
   </div>
 </header>
 
@@ -196,6 +197,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
         <label class="f"><span>主要問題／診斷（選填）</span><input type="text" id="problem" autocomplete="off" placeholder="例：UTI、腹痛"></label>
       </div>
       <div class="modes" id="modes" role="tablist">
+        <button type="button" class="link" id="btnMci" title="開啟 MCI 檢傷系統（另開分頁）">🚦 檢傷 ↗</button>
         <button type="button" data-mode="留觀" class="on">🏥 留觀紀錄</button>
         <button type="button" data-mode="治療區">🚑 治療區紀錄</button>
         <button type="button" data-mode="kardex">📊 交班單 Kardex</button>
@@ -320,6 +322,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
     </fieldset>
     <fieldset>
       <legend>轉入病歷（預留）</legend>
+      <label class="f"><span>檢傷系統（MCI）網址</span><input type="url" id="sMci" placeholder="https://cych05845-jpg.github.io/MCI/"></label>
       <label class="f"><span>病歷系統 API 網址</span><input type="url" id="sEmr" placeholder="尚未提供可先留空"></label>
       <label class="f" style="margin-top:10px"><span>授權碼（Bearer）</span><input type="password" id="sEmrToken" autocomplete="off"></label>
       <div class="hint">未填網址時，「轉入病歷」會顯示標準格式的資料，可複製給資訊室對接。</div>
@@ -354,6 +357,7 @@ table.kardex td[contenteditable]:focus{outline:2px solid var(--primary-2);backgr
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="/login/sso.js"></script>
 <script>
 'use strict';
 /* ================= 基本工具 ================= */
@@ -383,6 +387,7 @@ function base64ToBlob(b64, mime){
   return new Blob([arr], { type: mime || 'audio/webm' });
 }
 async function copyText(text, label){
+  text = String(text || '').replace(/\r?\n/g, '\r\n');   // Windows 程式（NIS）需要 CRLF 才會換行
   try { await navigator.clipboard.writeText(text); toast('已複製' + (label ? '：' + label : '')); }
   catch(e){
     const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
@@ -402,14 +407,18 @@ const MODELS = [
 ];
 const SEARCH_FREE_PER_MONTH = 5000, SEARCH_PRICE = 0.014;
 const DEFAULT_CFG = { mode:'key', apiKey:'', model:'gemini-3.8-flash', customModel:'', gasUrl:'https://script.google.com/macros/s/AKfycbww6nxNxT9WGjS5pAjAdlW2KwmP9peUDMd5z-jW6ptVbfgdRSJDDbcpFdLpnDzTaM_7DA/exec', gasToken:'',
-  webUnits:true, budget:10, startWord:'開始', stopWord:'結束', emrUrl:'', emrToken:'', author:'', voiceCmd:false };
+  webUnits:true, budget:10, startWord:'開始', stopWord:'結束', emrUrl:'', emrToken:'', author:'', voiceCmd:false, mciUrl:'https://cych05845-jpg.github.io/MCI/' };
 let cfg = Object.assign({}, DEFAULT_CFG, LS.get('vnw_cfg', {}));
 if (!cfg.gasUrl) cfg.gasUrl = DEFAULT_CFG.gasUrl;
 function saveCfg(){ LS.set('vnw_cfg', cfg); }
 function currentModel(){ return cfg.model === 'custom' ? (cfg.customModel || 'gemini-3.8-flash').trim() : cfg.model; }
 function modelPrice(id){ const m = MODELS.find(x => x.id === id); return m ? m.price : [0.75, 3.75]; }
 function aiReady(){ return cfg.mode === 'proxy' ? !!(cfg.gasUrl && cfg.gasToken) : !!cfg.apiKey; }
-function cloudReady(){ return !!(cfg.gasUrl && cfg.gasToken); }
+// 統一登入（帳號中心）：登入後紀錄者自動帶入，雲端也可用登入身分驗證，不必再發存取碼
+const SSO = window.CYCH_SSO && window.CYCH_SSO.enabled ? window.CYCH_SSO : null;
+let ssoUser = null;
+const ssoToken = () => (SSO && SSO.token()) || '';
+function cloudReady(){ return !!(cfg.gasUrl && (cfg.gasToken || ssoToken())); }
 // 後端已設定統一帳號 Key 時自動改用統一帳號（使用者自己在設定頁選過連線方式就不再自動切換）
 let modeTouched = false;
 async function autoProxy(){
@@ -466,16 +475,38 @@ const DB = {
     if (!this.db) return Promise.resolve(this.mem.get(id));
     return new Promise(res => { const q = this.store('readonly').get(id); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); });
   },
+  del(id){
+    if (!this.db){ this.mem.delete(id); return Promise.resolve(); }
+    return new Promise(res => { const q = this.store('readwrite').delete(id); q.onsuccess = () => res(); q.onerror = () => res(); });
+  },
   all(){
     if (!this.db) return Promise.resolve(Array.from(this.mem.values()));
     return new Promise(res => { const q = this.store('readonly').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => res([]); });
   }
 };
 
+/* ================= 隱私：本機保存期限、個資遮蔽 ================= */
+const LOCAL_DAYS = 7;   // 本機（手機）只留 7 天；已上傳雲端的才刪，正式紀錄在 NIS
+async function purgeLocal(){
+  const limit = Date.now() - LOCAL_DAYS * 864e5;
+  const all = await DB.all();
+  const old = all.filter(r => r.synced && new Date(r.createdAt).getTime() < limit);
+  for (const r of old) await DB.del(r.id);
+  if (old.length) toast(`已清除本機 ${old.length} 筆超過 ${LOCAL_DAYS} 天的紀錄（雲端依保存期限保留）`);
+  const pending = all.filter(r => !r.synced && r.status !== 'processing' && new Date(r.createdAt).getTime() < limit).length;
+  if (pending && cloudReady()) toast(`有 ${pending} 筆超過 ${LOCAL_DAYS} 天還沒上傳，請到查詢頁按「全部上傳」`, 6000);
+}
+// 口述不小心說出的身分證、電話、完整病歷號等長號碼一律遮蔽（姓名由 AI 依規則改寫）
+function maskPII(t){
+  return String(t || '')
+    .replace(/[A-Z][12]\d{8}/g, '【身分證已遮蔽】')
+    .replace(/(?<!\d)09\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)/g, '【電話已遮蔽】')
+    .replace(/(?<![\d.\/])\d{7,}(?![\d.])/g, '【號碼已遮蔽】');
+}
 /* ================= 雲端（Apps Script） ================= */
 async function gasCall(payload){
   if (!cloudReady()) throw new Error('尚未設定雲端網址與存取碼');
-  const res = await fetch(cfg.gasUrl, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({}, payload, { token: cfg.gasToken })) });
+  const res = await fetch(cfg.gasUrl, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({}, payload, { token: cfg.gasToken, sso: ssoToken() || undefined })) });
   let data;
   try { data = await res.json(); } catch(e){ throw new Error('雲端回應格式錯誤（請確認已部署為網頁應用程式，存取權為「所有人」）'); }
   if (!data.ok) throw new Error(data.error || '雲端錯誤');
@@ -554,6 +585,7 @@ function parseJSON(text){
 
 /* ================= 紀錄類型（沿用 5 月版的 14 種範本與規則） ================= */
 const COMMON_RULES = `你是急診護理紀錄助手。請將護理師的口述內容，轉成符合急診單位標準格式的 R 紀錄。
+【隱私】病人與家屬的姓名一律改寫為「病人」「家屬」；身分證字號、電話、地址、完整病歷號不要寫出。
 
 【🔴 最重要原則：內容完整性 > 格式】
 護理師講的每一個臨床資訊都要被記錄，不要因為追求格式而漏寫。
@@ -1196,11 +1228,11 @@ async function runSupplement(rec, seg){
     });
     let r = parseJSON(text);
     r = await applyUnitsAndFlags(r);
-    seg.transcript = r.transcript || ''; seg.status = 'done'; seg.model = model; seg.updatedAt = new Date().toISOString();
+    seg.transcript = maskPII(r.transcript || ''); seg.status = 'done'; seg.model = model; seg.updatedAt = new Date().toISOString();
     await DB.put(seg);
     const first = /^【\d{1,2}:\d{2}/.test(rec.transcript || '') ? rec.transcript : `【${hhmm(rec.createdAt)}】${rec.transcript || ''}`;
     rec.transcript = `${first}\n\n【${hhmm(seg.createdAt)} 補充】${seg.transcript}`;
-    const merged = (r.narrative || '').trim() || before.narrative;
+    const merged = maskPII((r.narrative || '').trim()) || before.narrative;
     rec.narrative = merged; rec.narrativeAI = merged; rec.edited = false;
     rec.measurements = mergeMeasurements(rec.measurements, r.measurements);
     const seen = new Set((rec.flags || []).map(f => f.type + '|' + (f.detail || '')));
@@ -1262,6 +1294,7 @@ async function runAI(rec){
       missing: Array.isArray(r.missing) ? r.missing.slice(0,5) : [],
       model, status:'done', updatedAt: new Date().toISOString()
     });
+    rec.transcript = maskPII(rec.transcript); rec.narrative = maskPII(rec.narrative); rec.narrativeAI = rec.narrative;
     triggerAssessments(rec);
     if (rec.fourA && !rec.fourA.mentioned) rec.fourA = null;
     await gcsCheck(rec); await spo2Check(rec);
@@ -1713,21 +1746,40 @@ Kardex 不是「什麼都寫」的紀錄，而是「只記關鍵醫囑與 data�
 註記 = 管路資訊、跌倒評估、過敏警示等
 結束時間 = 通常空白
 
-【範例 A - 第一筆（Stroke 入院）】
-事件：● 病人 診斷 Stroke ● 留觀第 1 天（3 床）● 檢傷病史：腦中風入急診 ● 過敏史：NKA ● 現況：意識清楚 GCS E4V5M6，右側肢體乏力（RUE 3分／RLE 4分）
-處理：● brain CT ● CXR ● EKG ● 吞嚥反射評估通過 → Bokey 1顆 PO、Brinta 2顆 PO
-追蹤：● CT：no ICH ● CXR：no PN ● EKG：Af ● 尾骶骨：壓紅
-註記：右手 20 號 IV free、高跌評估高風險、需人扶持
-【範例 B - 追加條目（查房）】事件：查房／處理：● 明日 F/U MRI ● 頸部超音波／追蹤：（等明日 data）
-【範例 C - 追加條目（Lab 異常）】事件：Na 119mmol/L／處理：● 告知醫師 ● NS 500cc IVD ● 2 小時後重驗 Na／追蹤：（等重驗結果）
+【書寫格式：照院內 NIS「護理過程」的寫法】各欄內的段落之間空一行。
+事件（第一筆）：
+• 活動狀態：需攙扶 • E4V5M6 • 呼吸速率：18 • 血氧濃度：97 % • 脈搏：96 bpm • 血壓：142/80 mmHG • 體溫：耳37.8 ℃
+（只列口述有提到的項目，沒提到的整項省略，不要留空白項目）
+
+□ 主要問題：病人自訴今早開始腹痛故入。
+
+□ 檢傷病史：H/T、DM
+
+□ 過敏史：無已知用藥過敏史
+（以上為格式範例，內容一律以本次口述為準，範例的數值與病史不可沿用）
+處理：第一段寫入院醫囑，同一行用「、」分隔；之後每個「問題或結果 → 處置」各一段，用「→」連接：
+抽血、N/S 500、KUB、U/A、Buscopan 1 支 IV
+
+WBC：15000/μL↑→Abd CT
+
+收住院→EKG
+追蹤：每一項檢查結果各一段，格式「項目:結果」，可在括號補充處置：
+KUB:無明顯 ileus
+
+EKG:SR
+
+SKIN:完整
+註記：管路資訊、跌倒評估、過敏警示等；沒有就空白。結束時間：通常空白。
+【追加條目範例】事件：查房／處理：明日 F/U MRI、頸部超音波／追蹤：（等明日 data）
+【追加條目範例】事件：Na 119 mmol/L／處理：告知醫師→N/S 500 IVD、2 小時後重驗 Na／追蹤：（等重驗結果）
 
 【藥物寫法 - 簡潔】
-針劑「N 支」（Buscopan 1支 IV、Morphine 0.5支 IV）、口服「N 顆」（Strocain 2顆 PO，不用 #）、輸液寫 cc（NS 500cc IV run）。
-不寫毫克數、不寫 vial；除非護理師特別強調劑量才保留毫克數。途徑保留英文：IV、IVP、IVD、IM、PO、SC。
+針劑「N 支」（Buscopan 1 支 IV、Morphine 0.5 支 IV）、口服「N 顆」（Strocain 2 顆 PO，不用 #）、輸液寫量（N/S 500）。
+不寫 vial；口述有說出劑量（例：Augmentin 1200 MG IVD）就照寫。途徑保留英文：IV、IVP、IVD、IM、PO、SC。
 【醫學術語保留英文】V/S、NBP、SPO2、GCS、Foley、IV、NG、NPO、IVD、CXR、EKG、CT、MRI、CBC、BUN、Cr、Na、K、Bil、WBC、Hb、PLT、NKA、DNR、ICH、PN、Af 等
 【口語去除】「然後」「那個」「啊」「呃」「這樣子」「哦」「嗯」全部略過
-【多個項目】同一欄多個項目用「● 」開頭並以換行分隔。
-【不可編造】口述沒提到的醫囑、data、過敏史不要自己補；不確定的用【】標示請護理師確認。`;
+【不可編造】口述沒提到的醫囑、data、過敏史不要自己補；不確定的用【】標示請護理師確認。
+【隱私】病人與家屬的姓名一律改寫為「病人」「家屬」；身分證字號、電話、地址、完整病歷號不要寫出。`;
 
 function nowStamp(){ const d = new Date(); return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function kardexEntries(rec){ return (rec.sections && Array.isArray(rec.sections.kardex)) ? rec.sections.kardex : []; }
@@ -1780,7 +1832,8 @@ ${kardexPriorBlock(prior)}
     if (!entries.length) throw new Error('AI 沒有產出任何 Kardex 條目，請重新產出或簡化口述');
     entries = entries.map(e => Object.assign({ startTime: nowStamp(), event:'', action:'', followup:'', note:'', endTime:'' }, e, { startTime: e.startTime || nowStamp() }));
     r = await applyUnitsAndFlags({ measurements: r.measurements || [], flags: r.flags || [], narrative: '' , transcript: r.transcript });
-    entries.forEach(e => ['event','action','followup','note'].forEach(k => { e[k] = addUnitsToNarrative(e[k] || '', r.measurements || []); }));
+    entries.forEach(e => ['event','action','followup','note'].forEach(k => { e[k] = maskPII(addUnitsToNarrative(e[k] || '', r.measurements || [])); }));
+    if (parsed.transcript) parsed.transcript = maskPII(parsed.transcript);
     const txt = kardexText(entries);
     Object.assign(rec, {
       transcript: (rec.sourceText ? rec.transcript : '') || parsed.transcript || '',
@@ -1993,7 +2046,7 @@ function recordBodyHtml(rec, opts){
   }
   const au = opts.audioUrl || audioUrlFor(rec);
   h += `<details class="trans" open><summary>錄音（${fmtDur(rec.durationSec)}）</summary>`;
-  h += au ? `<audio controls preload="none" src="${esc(au)}" style="width:100%;margin:8px 0"></audio>` : (rec.audioFileId ? `<div class="row" style="margin:8px 0"><button class="btn" type="button" data-act="loadAudio" data-id="${esc(rec.id)}" data-file="${esc(rec.audioFileId)}" data-mime="${esc(rec.audioMime || '')}">▶️ 載入雲端錄音</button></div>` : '<div class="hint">此紀錄沒有錄音檔</div>');
+  h += au ? `<audio controls preload="none" src="${esc(au)}" style="width:100%;margin:8px 0"></audio>` : (/^已刪除/.test(rec.audioMime || '') ? `<div class="hint">🗑️ 錄音已依保存期限刪除（文字紀錄保留）</div>` : rec.audioFileId ? `<div class="row" style="margin:8px 0"><button class="btn" type="button" data-act="loadAudio" data-id="${esc(rec.id)}" data-file="${esc(rec.audioFileId)}" data-mime="${esc(rec.audioMime || '')}">▶️ 載入雲端錄音</button></div>` : '<div class="hint">此紀錄沒有錄音檔</div>');
   segsOf(rec).forEach((x, i) => {
     h += `<div class="row" style="margin:4px 0"><span class="hint" style="margin:0">補充 ${i + 1}（${fmtTime(x.at)}，${fmtDur(x.durationSec || 0)}）</span><button class="btn" type="button" data-act="loadSeg" data-id="${esc(rec.id)}" data-seg="${esc(x.segId)}">▶️ 播放</button></div>`;
   });
@@ -2204,17 +2257,17 @@ function closeModal(el){ el.closest('.modal').classList.remove('open'); }
 function openSettings(){
   modeTouched = false;
   $('#sMode').value = cfg.mode; $('#sKey').value = cfg.apiKey; $('#sModel').value = cfg.model; $('#sCustom').value = cfg.customModel;
-  $('#sGas').value = cfg.gasUrl; $('#sToken').value = cfg.gasToken; $('#sAuthor').value = cfg.author; $('#sBudget').value = cfg.budget;
+  $('#sGas').value = cfg.gasUrl; $('#sToken').value = cfg.gasToken; $('#sAuthor').value = ssoUser ? ssoUser.name : cfg.author; $('#sAuthor').disabled = !!ssoUser; $('#sAuthor').title = ssoUser ? '由帳號中心登入帶入' : ''; $('#sBudget').value = cfg.budget;
   $('#sStart').value = cfg.startWord; $('#sStop').value = cfg.stopWord; $('#sWeb').checked = cfg.webUnits;
-  $('#sEmr').value = cfg.emrUrl; $('#sEmrToken').value = cfg.emrToken;
+  $('#sEmr').value = cfg.emrUrl; $('#sEmrToken').value = cfg.emrToken; $('#sMci').value = cfg.mciUrl || DEFAULT_CFG.mciUrl;
   $('#testAIResult').textContent = ''; $('#testGasResult').textContent = '';
   updateSettingsView(); openModal('#settingsModal');
 }
 function readSettings(){
   cfg.mode = $('#sMode').value; if (modeTouched) cfg.modeManual = true; cfg.apiKey = $('#sKey').value.trim(); cfg.model = $('#sModel').value; cfg.customModel = $('#sCustom').value.trim();
-  cfg.gasUrl = $('#sGas').value.trim(); cfg.gasToken = $('#sToken').value.trim(); cfg.author = $('#sAuthor').value.trim();
+  cfg.gasUrl = $('#sGas').value.trim(); cfg.gasToken = $('#sToken').value.trim(); cfg.author = ssoUser ? ssoUser.name : $('#sAuthor').value.trim();
   cfg.budget = parseFloat($('#sBudget').value) || 0; cfg.startWord = $('#sStart').value.trim() || '開始'; cfg.stopWord = $('#sStop').value.trim() || '結束';
-  cfg.webUnits = $('#sWeb').checked; cfg.emrUrl = $('#sEmr').value.trim(); cfg.emrToken = $('#sEmrToken').value.trim();
+  cfg.webUnits = $('#sWeb').checked; cfg.emrUrl = $('#sEmr').value.trim(); cfg.emrToken = $('#sEmrToken').value.trim(); cfg.mciUrl = $('#sMci').value.trim() || DEFAULT_CFG.mciUrl;
 }
 function updateSettingsView(){
   $('#sKeyWrap').classList.toggle('hidden', $('#sMode').value === 'proxy');
@@ -2430,7 +2483,7 @@ $('#btnTestGas').addEventListener('click', async () => {
   const old = Object.assign({}, cfg); readSettings();
   $('#testGasResult').innerHTML = '<span class="spinner"></span>';
   try { const r = await gasCall({ action:'ping' });
-    let msg = '✅ 雲端正常' + (r.proxy ? '，統一帳號 AI 已設定' : '（統一帳號 AI 尚未設定 Key）');
+    let msg = '✅ 雲端正常' + (r.proxy ? '，統一帳號 AI 已設定' : '（統一帳號 AI 尚未設定 Key）') + (r.retention ? `。保存期限：文字 ${r.retention.days || '不限'} 天、錄音 ${r.retention.audioDays} 天；本機 ${LOCAL_DAYS} 天` : '');
     if (r.proxy && $('#sMode').value !== 'proxy' && !modeTouched && !old.modeManual){ $('#sMode').value = 'proxy'; updateSettingsView(); msg += '，已改選統一帳號，按「儲存」生效'; }
     $('#testGasResult').textContent = msg; }
   catch(e){ $('#testGasResult').textContent = '❌ ' + e.message; }
@@ -2438,6 +2491,8 @@ $('#btnTestGas').addEventListener('click', async () => {
 });
 $('#dx').addEventListener('change', renderCoach);
 $('#template').addEventListener('change', () => { LS.set('vnw_last', { mode: currentMode, template: $('#template').value }); showPrevious(); });
+// 檢傷改用 MCI 檢傷系統（不帶任何病人資料過去）
+$('#btnMci').addEventListener('click', () => { window.open(cfg.mciUrl || DEFAULT_CFG.mciUrl, 'cych_mci', 'noopener'); });
 $('#modes').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) setMode(b.dataset.mode); });
 $('#bed').addEventListener('change', showPrevious);
 $('#bed').addEventListener('input', () => { if (last4){ last4 = ''; renderLast4(); } });
@@ -2456,8 +2511,17 @@ $('#tRange').addEventListener('change', doTrack);
 $('#tAll').addEventListener('change', doTrack);
 
 (async function init(){
+  if (SSO){
+    ssoUser = await SSO.require('語音紀錄');      // 沒登入會先跳到帳號中心
+    if (ssoUser){
+      if (cfg.author !== ssoUser.name){ cfg.author = ssoUser.name; saveCfg(); }
+      $('#btnMe').textContent = '👤 ' + ssoUser.name; $('#btnMe').classList.remove('hidden');
+      $('#btnMe').onclick = () => { location.href = SSO.loginPage; };
+    }
+  }
   renderSelects();
   await DB.open();
+  purgeLocal();
   initCmd();
   $('#cmdToggle').checked = !!cfg.voiceCmd;
   if (!SR) $('#cmdToggle').disabled = true;
