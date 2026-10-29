@@ -586,6 +586,7 @@ function parseJSON(text){
 /* ================= 紀錄類型（沿用 5 月版的 14 種範本與規則） ================= */
 const COMMON_RULES = `你是急診護理紀錄助手。請將護理師的口述內容，轉成符合急診單位標準格式的 R 紀錄。
 【隱私】病人與家屬的姓名一律改寫為「病人」「家屬」；身分證字號、電話、地址、完整病歷號不要寫出。
+【時態】口述是「等一下、再、會、要、準備」去做的事，紀錄寫成「將……」或「待……」，不可寫成「已……」。例：「那我再給醫師說」→「將告知醫師」；只有口述明確說做完了（已經、剛剛、有）才寫「已」。
 
 【🔴 最重要原則：內容完整性 > 格式】
 護理師講的每一個臨床資訊都要被記錄，不要因為追求格式而漏寫。
@@ -861,7 +862,7 @@ async function applyUnitsAndFlags(result){
   const push = f => {
     const t = String(f.type || '').trim(); if (!t) return;
     const ex = merged.find(x => x.type === t);
-    if (ex){ if (f.severity === 'alert') ex.severity = 'alert'; if (f.detail && !String(ex.detail).includes(f.detail)) ex.detail = ex.detail ? ex.detail + '；' + f.detail : f.detail; if (f.followUp && !ex.followUp) ex.followUp = f.followUp; }
+    if (ex){ if (f.severity === 'alert') ex.severity = 'alert'; if (f.detail && !String(ex.detail).replace(/\s+/g, '').includes(String(f.detail).replace(/\s+/g, ''))) ex.detail = ex.detail ? ex.detail + '；' + f.detail : f.detail; if (f.followUp && !ex.followUp) ex.followUp = f.followUp; }
     else merged.push({ id: uid(), type:t, severity: f.severity === 'alert' ? 'alert' : 'caution', detail: f.detail || '', followUp: f.followUp || '', source: f.source || 'AI', resolved:false });
   };
   flagsOut.forEach(push);
@@ -1421,6 +1422,7 @@ function cnInt(str){
 }
 function cnToArabic(str){
   return String(str || '')
+    .replace(/([一二兩三四五六七八九])([二三四五六七八九])(?=[天歲次分個顆支小日週周月年])/g, (m, a, b) => CN_D[b] === CN_D[a] + 1 ? CN_D[a] + '-' + CN_D[b] : m)
     .replace(/([零一二兩三四五六七八九十百]+)點([零一二三四五六七八九]+)/g, (m, a, b) => { const i = cnInt(a); return isNaN(i) ? m : i + '.' + Array.from(b).map(c => CN_D[c]).join(''); })
     .replace(/半(?=[顆支])/g, '0.5')
     .replace(/([零一二兩三四五六七八九十百]+)(?=[顆支床天歲次分度號個瓶包毫公cC%小])/g, (m, a) => { const i = cnInt(a); return isNaN(i) ? m : String(i); });
@@ -1489,10 +1491,15 @@ function verifyRecord(rec){
     }
   }
   // 3) 動作句
+  const FUTURE = /(再|等一下|等等|待會|待一下|稍後|會|要|準備|去)[^，。；？]{0,4}(給|跟|和|向|告訴|通知|報告|問|找)?[^，。；？]{0,3}(醫師|醫生|學長|主治)/;
+  const PAST = /(已經|剛剛|剛才|有跟|有給|有告訴|有通知|有報告)[^，。；？]{0,6}(醫師|醫生|學長|主治)|(?<![給跟向和訴問找])(醫師|醫生)[^，。；？]{0,6}(說|表示|回|同意|知道了)/;
   CLAIMS.forEach(c => {
     c.re.lastIndex = 0; let x;
     while ((x = c.re.exec(text))){
       if (inRanges(x.index, brs)) continue;
+      if (c.label === '告知醫師' && /^已|^有/.test(x[0]) && FUTURE.test(rec.transcript || '') && !PAST.test(rec.transcript || '')){
+        res.claimMissing.push('告知醫師（口述是之後才要告知）'); res.marks.push({ a:x.index, b:x.index + x[0].length, cls:'warn', tip:'口述是「之後才要」告知醫師，紀錄寫成已告知，請確認' }); continue;
+      }
       if (!c.ev.test(rec.transcript || '')){
         res.claimMissing.push(c.label); res.marks.push({ a:x.index, b:x.index + x[0].length, cls:'warn', tip:`紀錄寫了「${c.label}」，逐字稿沒有提到` });
       }
@@ -1532,7 +1539,9 @@ function verifySummary(v){
   if (!v.hasTranscript) return '<span class="chip">尚無逐字稿可比對</span>';
   const c = [];
   if (v.numMissing.length) c.push(`<span class="chip alert">⚠️ ${v.numMissing.length} 個數字逐字稿沒有：${v.numMissing.map(esc).join('、')}</span>`);
-  if (v.claimMissing.length) c.push(`<span class="chip caution">⚠️ 逐字稿沒提到：${v.claimMissing.map(esc).join('、')}</span>`);
+  const tense = v.claimMissing.filter(x => /之後才要/.test(x)), miss = v.claimMissing.filter(x => !/之後才要/.test(x));
+  if (miss.length) c.push(`<span class="chip caution">⚠️ 逐字稿沒提到：${miss.map(esc).join('、')}</span>`);
+  if (tense.length) c.push(`<span class="chip caution">⏳ 口述是之後才要做，紀錄卻寫「已」：告知醫師</span>`);
   if (v.tpl.length) c.push(`<span class="chip info">ℹ️ 固定句請確認：${v.tpl.map(esc).join('、')}</span>`);
   if (v.omitted.length) c.push(`<span class="chip caution">📝 逐字稿有、紀錄沒寫：${v.omitted.map(esc).join('、')}</span>`);
   if (!c.length) c.push('<span class="chip ok">✅ 紀錄內容都能在逐字稿找到</span>');
