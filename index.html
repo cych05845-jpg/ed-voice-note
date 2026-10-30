@@ -1279,9 +1279,14 @@ async function runAI(rec){
     const prev = await previousRecord(rec);
     const prevFlags = prev ? (prev.flags || []).filter(f => !f.resolved) : [];
     const krecs = (rec.useKardex && rec.template === 'complete') ? await kardexHistory(rec.mrn, rec.id) : [];
-    const b64 = await blobToBase64(rec.audioBlob);
+    let parts;
+    if (rec.audioBlob){
+      parts = [{ text: buildPrompt(rec, prevFlags, prev) + kardexToRBlock(krecs) }, { inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: await blobToBase64(rec.audioBlob) } }];
+    } else if (rec.sourceText){   // 沒有錄音（例：由 Kardex 轉成 R 紀錄）時，改用逐字稿文字
+      parts = [{ text: buildPrompt(rec, prevFlags, prev) + kardexToRBlock(krecs) + `\n\n【注意：這次沒有錄音附件】請改依下面護理師口述的逐字稿整理；transcript 欄位照抄這段逐字稿。\n【口述逐字稿】\n${rec.sourceText}\n` }];
+    } else throw new Error('這台裝置沒有這筆錄音，也沒有逐字稿可用');
     const { text, model } = await callGemini({
-      parts:[{ text: buildPrompt(rec, prevFlags, prev) + kardexToRBlock(krecs) }, { inline_data:{ mime_type: rec.audioMime || 'audio/webm', data: b64 } }],
+      parts,
       schema: SCHEMA, maxTokens: 12000
     });
     let r = parseJSON(text);
@@ -2066,6 +2071,7 @@ function recordBodyHtml(rec, opts){
     <button class="btn" type="button" data-act="copyStruct" data-id="${esc(rec.id)}">📊 複製結構化</button>
     <button class="btn" type="button" data-act="emr" data-id="${esc(rec.id)}">🏥 轉入病歷</button>
     ${rec.template !== 'kardex' && rec.status === 'done' ? `<button class="btn" type="button" data-act="toKardex" data-id="${esc(rec.id)}">📊 轉成 Kardex</button>` : ''}
+    ${rec.template === 'kardex' && rec.status === 'done' ? `<span class="row" style="gap:6px"><select data-totpl="${esc(rec.id)}" title="要轉成哪一種紀錄">${Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}" ${k === 'complete' ? 'selected' : ''}>${esc(t.group + '・' + t.label)}</option>`).join('')}</select><button class="btn" type="button" data-act="toR" data-id="${esc(rec.id)}">📝 轉成 R 紀錄</button></span>` : ''}
     <button class="btn" type="button" data-act="redo" data-id="${esc(rec.id)}">🔄 重新產出</button>
   </div>
   <div class="hint" style="margin-top:6px"><span data-savestate="${esc(rec.id)}">${rec.synced ? `☁️ 已存雲端（${fmtTime(rec.updatedAt)}）` : `💾 已存本機（${fmtTime(rec.updatedAt)}）`}</span>。修改後離開欄位會自動儲存，按「💾 儲存」可立即存檔並上傳。</div>`;
@@ -2370,6 +2376,21 @@ document.addEventListener('click', async ev => {
         sourceId: rec.id, status:'processing', model: currentModel(), narrative:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
       };
       await DB.put(k); closeAllModals(); switchView('record'); currentRec = k; showResult(k); runKardexAI(k); break;
+    }
+    case 'toR': {   // 同一段錄音：Kardex 產出後再產 R 紀錄
+      if (!rec) break;
+      const sel = document.querySelector(`select[data-totpl="${rec.id}"]`);
+      const tpl = sel && TEMPLATES[sel.value] ? sel.value : 'complete';
+      let blob = rec.audioBlob; if (!blob){ const full = await DB.get(rec.id); blob = full && full.audioBlob; }
+      const r2 = {
+        id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), author: cfg.author || '',
+        mrn: rec.mrn, bed: rec.bed, age: rec.age || '', problem: rec.problem || '', template: tpl, dx: rec.dx || '', checked: [], useKardex: true,
+        durationSec: rec.durationSec || 0, audioBlob: blob || null, audioMime: blob ? (rec.audioMime || 'audio/webm') : '',
+        sourceText: blob ? '' : (rec.transcript || ''), sourceId: rec.id,
+        status:'processing', model: currentModel(), narrative:'', transcript:'', measurements:[], sections:{}, flags:[], missing:[], synced:false
+      };
+      if (!r2.audioBlob && !r2.sourceText){ toast('這筆 Kardex 沒有錄音也沒有逐字稿，無法轉成 R 紀錄'); break; }
+      await DB.put(r2); closeAllModals(); switchView('record'); currentRec = r2; showResult(r2); runAI(r2); break;
     }
     case 'fa':
       if (!rec || !rec.fourA) break;
